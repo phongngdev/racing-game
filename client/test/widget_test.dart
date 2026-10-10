@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:demo_ui/main.dart';
+import 'package:racing_client/main.dart';
 
 void main() {
   testWidgets('demo đi hết luồng kết nối, đua và tái đấu', (tester) async {
