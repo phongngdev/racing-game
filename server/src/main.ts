@@ -1,12 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module.js';
-import { setupSwagger } from './swagger.js';
+import { setupHttp } from './http-setup.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  setupSwagger(app);
+  setupHttp(app);
 
   const config = app.get(ConfigService);
   await app.listen(config.getOrThrow<number>('PORT'));

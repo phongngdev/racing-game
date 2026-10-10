@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AuthModule } from './auth/auth.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { UsersModule } from './users/users.module.js';
 
 @Module({
   imports: [
@@ -19,7 +21,26 @@ import { AppService } from './app.service.js';
           throw new Error('PORT must be an integer between 1 and 65535.');
         }
 
-        return { ...environment, PORT: port };
+        const jwtSecret = environment['JWT_SECRET'];
+        if (typeof jwtSecret !== 'string' || jwtSecret.trim().length < 32) {
+          throw new Error('JWT_SECRET must contain at least 32 characters.');
+        }
+
+        const jwtExpiresIn = environment['JWT_EXPIRES_IN'] ?? '1h';
+        if (
+          typeof jwtExpiresIn !== 'string' ||
+          !/^[1-9]\d*(s|m|h|d)$/.test(jwtExpiresIn)
+        ) {
+          throw new Error(
+            'JWT_EXPIRES_IN must be a positive duration such as 1h.',
+          );
+        }
+
+        return {
+          ...environment,
+          PORT: port,
+          JWT_EXPIRES_IN: jwtExpiresIn,
+        };
       },
     }),
     MongooseModule.forRootAsync({
@@ -31,6 +52,8 @@ import { AppService } from './app.service.js';
         retryDelay: 1000,
       }),
     }),
+    UsersModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
