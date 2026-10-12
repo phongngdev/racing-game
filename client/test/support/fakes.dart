@@ -55,8 +55,13 @@ class FakeAuthRepository implements AuthRepository {
   Object? meError;
   Object? loginError;
   Object? registerError;
+  Object? googleLoginError;
+  Object? passwordResetError;
   int meCalls = 0;
   int registerCalls = 0;
+  int googleLoginCalls = 0;
+  int resetRequestCalls = 0;
+  int resetPasswordCalls = 0;
 
   @override
   Future<String> login(String username, String password) async {
@@ -65,9 +70,32 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<String> googleLogin(String idToken, {String? linkPassword}) async {
+    googleLoginCalls++;
+    if (googleLoginError case final error?) throw error;
+    return token;
+  }
+
+  @override
   Future<void> register(String username, String email, String password) async {
     registerCalls++;
     if (registerError case final error?) throw error;
+  }
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    resetRequestCalls++;
+    if (passwordResetError case final error?) throw error;
+  }
+
+  @override
+  Future<void> resetPassword(
+    String email,
+    String otp,
+    String newPassword,
+  ) async {
+    resetPasswordCalls++;
+    if (passwordResetError case final error?) throw error;
   }
 
   @override

@@ -8,9 +8,12 @@ import { AppModule } from './../src/app.module.js';
 import { setupHttp } from './../src/http-setup.js';
 import { User, UserRole } from './../src/users/user.schema.js';
 import { UsersService } from './../src/users/users.service.js';
+import { EmailService } from './../src/auth/email.service.js';
+import { RateLimitBucket } from './../src/auth/rate-limit.schema.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
+  let sentCodes: string[];
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -21,7 +24,15 @@ describe('AppController (e2e)', () => {
     setupHttp(app);
     await app.init();
     await app.get(getModelToken(User.name)).init();
+    await app.get(getModelToken(RateLimitBucket.name)).init();
     await app.get(getModelToken(User.name)).deleteMany({}).exec();
+    await app.get(getModelToken(RateLimitBucket.name)).deleteMany({}).exec();
+    sentCodes = [];
+    vi.spyOn(app.get(EmailService), 'sendPasswordResetCode').mockImplementation(
+      async (_email, code) => {
+        sentCodes.push(code);
+      },
+    );
   });
 
   it('/ (GET)', () => {
@@ -243,10 +254,108 @@ describe('AppController (e2e)', () => {
     expect(response.body.paths['/auth/me'].get.security).toEqual([
       { bearer: [] },
     ]);
+    expect(response.body.paths['/auth/google'].post).toBeDefined();
+    expect(response.body.paths['/auth/forgot-password'].post).toBeDefined();
+    expect(response.body.paths['/auth/reset-password'].post).toBeDefined();
+  });
+
+  it('resets a password once, rejects brute-force attempts, and revokes old JWTs', async () => {
+    await registerRacer();
+    const oldSession = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ username: 'racer_01', password: 'correct-horse-123' })
+      .expect(200);
+
+    const existing = await request(app.getHttpServer())
+      .post('/auth/forgot-password')
+      .send({ email: 'racer@example.com' })
+      .expect(202);
+    const unknown = await request(app.getHttpServer())
+      .post('/auth/forgot-password')
+      .send({ email: 'unknown@example.com' })
+      .expect(202);
+    expect(existing.body).toEqual(unknown.body);
+    expect(sentCodes).toHaveLength(2);
+
+    await app
+      .get(getModelToken(User.name))
+      .updateOne(
+        { email: 'racer@example.com' },
+        { $set: { resetOtpExpiresAt: new Date(Date.now() - 1000) } },
+      )
+      .exec();
+    await request(app.getHttpServer())
+      .post('/auth/reset-password')
+      .send({
+        email: 'racer@example.com',
+        otp: sentCodes[0],
+        newPassword: 'new-racing-pass-123',
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/auth/forgot-password')
+      .send({ email: 'racer@example.com' })
+      .expect(202);
+    const expiredCode = sentCodes[2];
+    const wrongCode = expiredCode === '000000' ? '000001' : '000000';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await request(app.getHttpServer())
+        .post('/auth/reset-password')
+        .send({
+          email: 'racer@example.com',
+          otp: wrongCode,
+          newPassword: 'new-racing-pass-123',
+        })
+        .expect(400);
+    }
+    await request(app.getHttpServer())
+      .post('/auth/reset-password')
+      .send({
+        email: 'racer@example.com',
+        otp: expiredCode,
+        newPassword: 'new-racing-pass-123',
+      })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/auth/forgot-password')
+      .send({ email: 'racer@example.com' })
+      .expect(202);
+    const validCode = sentCodes[3];
+    await request(app.getHttpServer())
+      .post('/auth/reset-password')
+      .send({
+        email: 'racer@example.com',
+        otp: validCode,
+        newPassword: 'new-racing-pass-123',
+      })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/auth/reset-password')
+      .send({
+        email: 'racer@example.com',
+        otp: validCode,
+        newPassword: 'another-racing-pass-123',
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${oldSession.body.accessToken}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ username: 'racer_01', password: 'correct-horse-123' })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ username: 'racer_01', password: 'new-racing-pass-123' })
+      .expect(200);
   });
 
   afterEach(async () => {
     await app.get(getModelToken(User.name)).deleteMany({}).exec();
+    await app.get(getModelToken(RateLimitBucket.name)).deleteMany({}).exec();
     await app.close();
   });
 

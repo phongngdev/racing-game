@@ -38,6 +38,42 @@ import { UsersModule } from './users/users.module.js';
           );
         }
 
+        const resetPepper = environment['RESET_OTP_PEPPER'];
+        if (
+          resetPepper !== undefined &&
+          (typeof resetPepper !== 'string' || resetPepper.trim().length < 32)
+        ) {
+          throw new Error(
+            'RESET_OTP_PEPPER must contain at least 32 characters.',
+          );
+        }
+
+        const smtpPort = environment['SMTP_PORT'];
+        if (smtpPort !== undefined) {
+          if (typeof smtpPort !== 'string' && typeof smtpPort !== 'number') {
+            throw new Error('SMTP_PORT must be between 1 and 65535.');
+          }
+          const smtpPortNumber = Number(smtpPort);
+          if (
+            !Number.isInteger(smtpPortNumber) ||
+            smtpPortNumber < 1 ||
+            smtpPortNumber > 65535
+          ) {
+            throw new Error('SMTP_PORT must be between 1 and 65535.');
+          }
+        }
+
+        const googleWebClientId = environment['GOOGLE_WEB_CLIENT_ID'];
+        if (
+          googleWebClientId !== undefined &&
+          (typeof googleWebClientId !== 'string' ||
+            !googleWebClientId.endsWith('.apps.googleusercontent.com'))
+        ) {
+          throw new Error(
+            'GOOGLE_WEB_CLIENT_ID must be a Google OAuth client ID.',
+          );
+        }
+
         return {
           ...environment,
           PORT: port,

@@ -26,13 +26,25 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(match[1], {
+      const payload = await this.jwt.verifyAsync<{
+        sub: string;
+        authVersion?: number;
+      }>(match[1], {
         algorithms: ['HS256'],
       });
       if (typeof payload.sub !== 'string') {
         throw new Error('JWT subject is missing.');
       }
-      request.user = await this.auth.getCurrentUser(payload.sub);
+      if (
+        payload.authVersion !== undefined &&
+        typeof payload.authVersion !== 'number'
+      ) {
+        throw new Error('JWT session version is invalid.');
+      }
+      request.user = await this.auth.getCurrentSessionUser(
+        payload.sub,
+        payload.authVersion ?? 0,
+      );
       return true;
     } catch {
       throw new UnauthorizedException('Invalid or expired access token.');

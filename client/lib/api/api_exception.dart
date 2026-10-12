@@ -5,11 +5,13 @@ class ApiException implements Exception {
     required this.kind,
     required this.message,
     this.statusCode,
+    this.code,
   });
 
   final ApiFailureKind kind;
   final String message;
   final int? statusCode;
+  final String? code;
 
   bool get isUnauthorized => statusCode == 401;
   bool get isForbidden => statusCode == 403;

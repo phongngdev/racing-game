@@ -35,6 +35,7 @@ class AppServices {
         apiBaseUrl: ApiConfig.baseUrl,
       ),
       configurationError: ApiConfig.configurationError,
+      enableGoogleSignIn: true,
     );
     return AppServices(
       auth: auth,

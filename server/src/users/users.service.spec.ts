@@ -60,4 +60,27 @@ describe('UsersService', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('requires the local password before linking a Google email collision', async () => {
+    users.findOne
+      .mockReturnValueOnce({ exec: vi.fn().mockResolvedValue(null) })
+      .mockReturnValueOnce({
+        exec: vi.fn().mockResolvedValue({
+          _id: { toString: () => '66c1a10d6b9a5e9a6a1c0123' },
+          email: storedUser.email,
+        }),
+      });
+
+    await expect(
+      service.authenticateGoogle({
+        sub: 'google-user-id',
+        email: storedUser.email,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'GOOGLE_LINK_REQUIRED' },
+    });
+    expect(users.create).not.toHaveBeenCalled();
+    expect(users.findById).not.toHaveBeenCalled();
+  });
 });
