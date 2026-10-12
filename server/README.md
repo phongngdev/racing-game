@@ -17,6 +17,8 @@ pnpm start:dev
 
 Set `JWT_SECRET` to a random value of at least 32 characters; `openssl rand -base64 48` generates one. `JWT_EXPIRES_IN` defaults to `1h`. Keep `.env` local and do not commit it. The default database URI is `mongodb://127.0.0.1:27017/racing_game`; the server listens on port `3000`.
 
+For Flutter Web development, the server allows `http://localhost:5173` and `http://127.0.0.1:5173` by default. Set `CORS_ORIGINS` to a comma-separated list of exact browser origins in `.env` if the client runs elsewhere, then restart NestJS. CORS is a browser policy; API authorization is still enforced by JWT and role guards.
+
 ## Authentication API
 
 - `POST /auth/register` accepts `{ "username", "email", "password" }` and creates a `User` account.

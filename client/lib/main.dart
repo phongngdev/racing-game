@@ -1,5 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'app_services.dart';
+import 'auth/auth_controller.dart';
+import 'auth/auth_pages.dart';
+import 'auth/session_user.dart';
+import 'catalog/catalog_page.dart';
+import 'catalog/catalog_repository.dart';
 import 'pages/collision_page.dart';
 import 'pages/connect_page.dart';
 import 'pages/race_page.dart';
@@ -8,8 +16,40 @@ import 'pages/tuning_page.dart';
 
 void main() => runApp(const MyApp());
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MyApp extends StatefulWidget {
+  const MyApp({super.key, this.authController, this.catalogRepository})
+    : assert((authController == null) == (catalogRepository == null));
+
+  final AuthController? authController;
+  final CatalogRepository? catalogRepository;
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  AppServices? _services;
+  late final AuthController _auth;
+  late final CatalogRepository _catalog;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.authController != null) {
+      _auth = widget.authController!;
+      _catalog = widget.catalogRepository!;
+    } else {
+      _services = AppServices.createDefault();
+      _auth = _services!.auth;
+      _catalog = _services!.catalog;
+    }
+  }
+
+  @override
+  void dispose() {
+    _services?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,13 +107,105 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const DemoShell(),
+      home: _AuthGate(auth: _auth, catalog: _catalog),
+    );
+  }
+}
+
+class _AuthGate extends StatefulWidget {
+  const _AuthGate({required this.auth, required this.catalog});
+
+  final AuthController auth;
+  final CatalogRepository catalog;
+
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(widget.auth.initialize());
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.auth,
+    builder: (context, _) => switch (widget.auth.status) {
+      AuthStatus.restoring => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      AuthStatus.configurationError => SessionMessagePage(
+        title: 'Cần cấu hình API',
+        message: widget.auth.message ?? 'API_BASE_URL chưa hợp lệ.',
+      ),
+      AuthStatus.unavailable => SessionMessagePage(
+        title: 'Chưa kết nối được máy chủ',
+        message: widget.auth.message ?? 'Hãy kiểm tra kết nối rồi thử lại.',
+        actionLabel: 'Thử lại',
+        onAction: () => unawaited(widget.auth.initialize()),
+        secondaryLabel: 'Đăng xuất',
+        onSecondary: () => unawaited(widget.auth.logout()),
+      ),
+      AuthStatus.signedOut => LoginPage(auth: widget.auth),
+      AuthStatus.signedIn => _authenticatedNavigator(
+        widget.auth,
+        widget.catalog,
+      ),
+    },
+  );
+
+  Widget _authenticatedNavigator(
+    AuthController auth,
+    CatalogRepository catalog,
+  ) {
+    final user = auth.user!;
+    return Navigator(
+      key: ValueKey(auth.sessionVersion),
+      onGenerateInitialRoutes: (navigator, initialRoute) => [
+        MaterialPageRoute<void>(
+          settings: RouteSettings(name: initialRoute),
+          builder: (context) => user.role == AppRole.admin
+              ? CatalogPage(
+                  repository: catalog,
+                  auth: auth,
+                  canManage: true,
+                  onReturnToRacing: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => DemoShell(
+                        auth: auth,
+                        onReturnToAdmin: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                  ),
+                )
+              : DemoShell(
+                  auth: auth,
+                  onOpenCatalog: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          CatalogPage(repository: catalog, auth: auth),
+                    ),
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
 
 class DemoShell extends StatefulWidget {
-  const DemoShell({super.key});
+  const DemoShell({
+    super.key,
+    required this.auth,
+    this.onOpenCatalog,
+    this.onReturnToAdmin,
+  });
+
+  final AuthController auth;
+  final VoidCallback? onOpenCatalog;
+  final VoidCallback? onReturnToAdmin;
 
   @override
   State<DemoShell> createState() => _DemoShellState();
@@ -116,7 +248,13 @@ class _DemoShellState extends State<DemoShell> {
             Expanded(
               child: Column(
                 children: [
-                  _TopBar(wide: wide, currentStep: _selectedIndex + 1),
+                  _TopBar(
+                    wide: wide,
+                    currentStep: _selectedIndex + 1,
+                    auth: widget.auth,
+                    onOpenCatalog: widget.onOpenCatalog,
+                    onReturnToAdmin: widget.onReturnToAdmin,
+                  ),
                   Expanded(
                     child: IndexedStack(index: _selectedIndex, children: pages),
                   ),
@@ -272,9 +410,18 @@ class _NavigationItem extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.wide, required this.currentStep});
+  const _TopBar({
+    required this.wide,
+    required this.currentStep,
+    required this.auth,
+    this.onOpenCatalog,
+    this.onReturnToAdmin,
+  });
   final bool wide;
   final int currentStep;
+  final AuthController auth;
+  final VoidCallback? onOpenCatalog;
+  final VoidCallback? onReturnToAdmin;
 
   @override
   Widget build(BuildContext context) {
@@ -317,6 +464,43 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ],
+          const Spacer(),
+          PopupMenuButton<String>(
+            tooltip: 'Tài khoản ${auth.user?.username ?? ''}',
+            onSelected: (value) {
+              if (value == 'catalog') onOpenCatalog?.call();
+              if (value == 'admin') onReturnToAdmin?.call();
+              if (value == 'logout') unawaited(auth.logout());
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                enabled: false,
+                child: Text(
+                  '${auth.user?.username ?? ''} · ${auth.user?.role.name == 'admin' ? 'Admin' : 'User'}',
+                ),
+              ),
+              if (onOpenCatalog != null)
+                const PopupMenuItem(
+                  value: 'catalog',
+                  child: Text('Sản phẩm & danh mục'),
+                ),
+              if (onReturnToAdmin != null)
+                const PopupMenuItem(
+                  value: 'admin',
+                  child: Text('Quay lại quản trị'),
+                ),
+              const PopupMenuItem(value: 'logout', child: Text('Đăng xuất')),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: CircleAvatar(
+                radius: 16,
+                child: Text(
+                  (auth.user?.username ?? '?').substring(0, 1).toUpperCase(),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

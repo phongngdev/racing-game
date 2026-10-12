@@ -51,6 +51,38 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('allows the configured local Flutter Web origin and preflights CRUD methods', async () => {
+    await request(app.getHttpServer())
+      .get('/health')
+      .set('Origin', 'http://localhost:5173')
+      .expect(200)
+      .expect('Access-Control-Allow-Origin', 'http://localhost:5173');
+
+    await request(app.getHttpServer())
+      .options('/products')
+      .set('Origin', 'http://localhost:5173')
+      .set('Access-Control-Request-Method', 'PUT')
+      .set('Access-Control-Request-Headers', 'authorization,content-type')
+      .expect(204)
+      .expect('Access-Control-Allow-Origin', 'http://localhost:5173')
+      .expect(({ headers }) => {
+        expect(headers['access-control-allow-methods']).toContain('PUT');
+        expect(headers['access-control-allow-headers']).toContain(
+          'Authorization',
+        );
+      });
+  });
+
+  it('does not allow an unconfigured Web origin', async () => {
+    await request(app.getHttpServer())
+      .get('/health')
+      .set('Origin', 'https://untrusted.example')
+      .expect(200)
+      .expect(({ headers }) => {
+        expect(headers['access-control-allow-origin']).toBeUndefined();
+      });
+  });
+
   it('registers a normalized User and never exposes the password hash', async () => {
     const response = await request(app.getHttpServer())
       .post('/auth/register')
