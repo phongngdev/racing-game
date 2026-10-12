@@ -30,8 +30,23 @@ export class User {
   })
   email!: string;
 
-  @Prop({ type: String, required: true, select: false })
-  passwordHash!: string;
+  @Prop({ type: String, select: false })
+  passwordHash?: string;
+
+  @Prop({ type: String, select: false })
+  googleSub?: string;
+
+  @Prop({ type: Number, required: true, default: 0, select: false })
+  authVersion!: number;
+
+  @Prop({ type: String, select: false })
+  resetOtpHash?: string;
+
+  @Prop({ type: Date, select: false })
+  resetOtpExpiresAt?: Date;
+
+  @Prop({ type: Number, select: false })
+  resetOtpAttempts?: number;
 
   @Prop({
     type: String,
@@ -44,3 +59,7 @@ export class User {
 
 export type UserDocument = HydratedDocument<User>;
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.index(
+  { googleSub: 1 },
+  { unique: true, partialFilterExpression: { googleSub: { $type: 'string' } } },
+);

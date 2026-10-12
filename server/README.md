@@ -17,12 +17,19 @@ pnpm start:dev
 
 Set `JWT_SECRET` to a random value of at least 32 characters; `openssl rand -base64 48` generates one. `JWT_EXPIRES_IN` defaults to `1h`. Keep `.env` local and do not commit it. The default database URI is `mongodb://127.0.0.1:27017/racing_game`; the server listens on port `3000`.
 
+For Google Sign-In, set `GOOGLE_WEB_CLIENT_ID` to the public Web OAuth client ID. Android and iOS request ID tokens for this server audience; the Android OAuth client must be registered in Google Cloud with package `com.phongngdev.racinggame` and the SHA-1 fingerprints of the signing certificates. iOS uses the iOS OAuth client and the same bundle ID. Add the exact Web origins used by the app (local development uses `http://localhost:5173`) to the Web OAuth client's Authorized JavaScript origins. Client IDs are public identifiers; do not put OAuth client secrets in the app.
+
+Password reset requires `RESET_OTP_PEPPER`, a random value of at least 32 characters, plus Gmail SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`). Set `SMTP_FROM` to the sender address if it differs from `SMTP_USER`. Keep the App Password in the ignored local `.env`. Reset codes expire after five minutes; MongoDB enforces five guesses per code, three requests per email and ten requests per IP in each 15-minute window, and thirty verification attempts per IP in each window. Forgot-password returns the same response for existing and unknown accounts. A successful reset changes the Argon2id password and invalidates previously issued JWTs.
+
 For Flutter Web development, the server allows `http://localhost:5173` and `http://127.0.0.1:5173` by default. Set `CORS_ORIGINS` to a comma-separated list of exact browser origins in `.env` if the client runs elsewhere, then restart NestJS. CORS is a browser policy; API authorization is still enforced by JWT and role guards.
 
 ## Authentication API
 
 - `POST /auth/register` accepts `{ "username", "email", "password" }` and creates a `User` account.
 - `POST /auth/login` accepts `{ "username", "password" }` and returns an access token and public user details.
+- `POST /auth/google` accepts `{ "idToken" }`; if the verified email belongs to a local account, retry with `{ "idToken", "linkPassword" }` to link it.
+- `POST /auth/forgot-password` accepts `{ "email" }` and returns a generic accepted response.
+- `POST /auth/reset-password` accepts `{ "email", "otp", "newPassword" }`; the OTP is single-use and expires after five minutes.
 - `GET /auth/me` requires `Authorization: Bearer <accessToken>` and returns the current public user and role.
 - `GET http://localhost:3000/health` pings MongoDB and returns `200` when connected or `503` when unavailable.
 - `http://localhost:3000/api/docs` opens Swagger UI.
@@ -56,7 +63,7 @@ The command creates an Admin only in development and fails if the username or em
 
 ## Tests
 
-E2e tests use the separate `racing_game_test` database on local MongoDB and clear only its `users`, `products`, and `categories` collections. Do not point the test configuration at the development database.
+E2e tests use the separate `racing_game_test` database on local MongoDB and clear only its `users`, `products`, `categories`, and `auth_rate_limits` collections. Do not point the test configuration at the development database.
 
 ```bash
 pnpm build

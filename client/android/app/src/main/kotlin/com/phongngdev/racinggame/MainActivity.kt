@@ -1,4 +1,4 @@
-package com.example.demo_ui
+package com.phongngdev.racinggame
 
 import io.flutter.embedding.android.FlutterActivity
 

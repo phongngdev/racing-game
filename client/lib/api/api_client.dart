@@ -65,6 +65,7 @@ class ApiClient {
         final exception = ApiException(
           kind: ApiFailureKind.http,
           statusCode: response.statusCode,
+          code: _codeFrom(decoded),
           message: _messageFrom(decoded, response.reasonPhrase),
         );
         if (response.statusCode == 401 && token != null) {
@@ -109,5 +110,12 @@ class ApiClient {
       if (value is List) return value.map((item) => '$item').join(' ');
     }
     return fallback ?? 'The request failed.';
+  }
+
+  String? _codeFrom(Object? body) {
+    if (body is Map<String, dynamic> && body['code'] is String) {
+      return body['code'] as String;
+    }
+    return null;
   }
 }
