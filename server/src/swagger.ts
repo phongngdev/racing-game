@@ -6,6 +6,7 @@ export function setupSwagger(app: INestApplication): void {
     .setTitle('Apex RC Racing API')
     .setDescription('API for the Apex RC racing control application.')
     .setVersion('1.0.0')
+    .addBearerAuth()
     .build();
 
   SwaggerModule.setup(
