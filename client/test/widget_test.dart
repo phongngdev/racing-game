@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/auth/auth_controller.dart';
 import 'package:racing_client/auth/auth_pages.dart';
 import 'package:racing_client/auth/session_user.dart';
+import 'package:racing_client/chat/chat_message.dart';
+import 'package:racing_client/chat/lm_studio_service.dart';
 import 'package:racing_client/main.dart';
 
 import 'support/fakes.dart';
@@ -178,6 +180,69 @@ void main() {
     await _tap(tester, find.text('Tinh chỉnh'));
     expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
   });
+
+  testWidgets('desktop chat panel closes without changing the selected tab', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = _signedInAuth(AppRole.user);
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(
+      MyApp(
+        authController: auth,
+        catalogRepository: FakeCatalogRepository(),
+        chatServiceFactory: _FakeChatService.new,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _tap(tester, find.text('Tinh chỉnh'));
+    await _tap(tester, find.byTooltip('Mở trợ lý Apex RC'));
+    expect(find.text('Trợ lý Apex RC'), findsOneWidget);
+    await _tap(tester, find.byTooltip('Đóng chat'));
+
+    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
+    expect(find.byTooltip('Mở trợ lý Apex RC'), findsOneWidget);
+  });
+
+  testWidgets('mobile chat page returns to the previously selected tab', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = _signedInAuth(AppRole.user);
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(
+      MyApp(
+        authController: auth,
+        catalogRepository: FakeCatalogRepository(),
+        chatServiceFactory: _FakeChatService.new,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _tap(tester, find.text('Tinh chỉnh'));
+    await _tap(tester, find.byTooltip('Mở chat với AI'));
+    expect(find.text('Hỏi đáp bằng AI'), findsOneWidget);
+    await _tap(tester, find.byTooltip('Quay lại'));
+
+    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
+    expect(find.text('Tinh chỉnh'), findsOneWidget);
+  });
+}
+
+class _FakeChatService implements ChatService {
+  @override
+  Future<ChatCompletion> complete(List<ChatMessage> history) async =>
+      const ChatCompletion(content: 'Câu trả lời giả lập');
+
+  @override
+  void close() {}
 }
 
 AuthController _signedInAuth(AppRole role) {

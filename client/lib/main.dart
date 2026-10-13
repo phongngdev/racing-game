@@ -8,6 +8,9 @@ import 'auth/auth_pages.dart';
 import 'auth/session_user.dart';
 import 'catalog/catalog_page.dart';
 import 'catalog/catalog_repository.dart';
+import 'chat/chat_controller.dart';
+import 'chat/chat_widgets.dart';
+import 'chat/lm_studio_service.dart';
 import 'pages/collision_page.dart';
 import 'pages/connect_page.dart';
 import 'pages/race_page.dart';
@@ -17,11 +20,16 @@ import 'pages/tuning_page.dart';
 void main() => runApp(const MyApp());
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key, this.authController, this.catalogRepository})
-    : assert((authController == null) == (catalogRepository == null));
+  const MyApp({
+    super.key,
+    this.authController,
+    this.catalogRepository,
+    this.chatServiceFactory,
+  }) : assert((authController == null) == (catalogRepository == null));
 
   final AuthController? authController;
   final CatalogRepository? catalogRepository;
+  final ChatServiceFactory? chatServiceFactory;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -107,16 +115,25 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
       ),
-      home: _AuthGate(auth: _auth, catalog: _catalog),
+      home: _AuthGate(
+        auth: _auth,
+        catalog: _catalog,
+        chatServiceFactory: widget.chatServiceFactory,
+      ),
     );
   }
 }
 
 class _AuthGate extends StatefulWidget {
-  const _AuthGate({required this.auth, required this.catalog});
+  const _AuthGate({
+    required this.auth,
+    required this.catalog,
+    this.chatServiceFactory,
+  });
 
   final AuthController auth;
   final CatalogRepository catalog;
+  final ChatServiceFactory? chatServiceFactory;
 
   @override
   State<_AuthGate> createState() => _AuthGateState();
@@ -152,6 +169,7 @@ class _AuthGateState extends State<_AuthGate> {
       AuthStatus.signedIn => _authenticatedNavigator(
         widget.auth,
         widget.catalog,
+        widget.chatServiceFactory,
       ),
     },
   );
@@ -159,6 +177,7 @@ class _AuthGateState extends State<_AuthGate> {
   Widget _authenticatedNavigator(
     AuthController auth,
     CatalogRepository catalog,
+    ChatServiceFactory? chatServiceFactory,
   ) {
     final user = auth.user!;
     return Navigator(
@@ -175,6 +194,7 @@ class _AuthGateState extends State<_AuthGate> {
                     MaterialPageRoute<void>(
                       builder: (_) => DemoShell(
                         auth: auth,
+                        chatServiceFactory: chatServiceFactory,
                         onReturnToAdmin: () => Navigator.of(context).pop(),
                       ),
                     ),
@@ -182,6 +202,7 @@ class _AuthGateState extends State<_AuthGate> {
                 )
               : DemoShell(
                   auth: auth,
+                  chatServiceFactory: chatServiceFactory,
                   onOpenCatalog: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) =>
@@ -201,11 +222,13 @@ class DemoShell extends StatefulWidget {
     required this.auth,
     this.onOpenCatalog,
     this.onReturnToAdmin,
+    this.chatServiceFactory,
   });
 
   final AuthController auth;
   final VoidCallback? onOpenCatalog;
   final VoidCallback? onReturnToAdmin;
+  final ChatServiceFactory? chatServiceFactory;
 
   @override
   State<DemoShell> createState() => _DemoShellState();
@@ -213,6 +236,21 @@ class DemoShell extends StatefulWidget {
 
 class _DemoShellState extends State<DemoShell> {
   int _selectedIndex = 0;
+  late final ChatController _chatController;
+
+  @override
+  void initState() {
+    super.initState();
+    _chatController = ChatController(
+      (widget.chatServiceFactory ?? LMStudioService.new)(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _chatController.dispose();
+    super.dispose();
+  }
 
   static const _destinations = <_DestinationData>[
     _DestinationData('Kết nối', Icons.link_rounded, '01'),
@@ -256,7 +294,13 @@ class _DemoShellState extends State<DemoShell> {
                     onReturnToAdmin: widget.onReturnToAdmin,
                   ),
                   Expanded(
-                    child: IndexedStack(index: _selectedIndex, children: pages),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        IndexedStack(index: _selectedIndex, children: pages),
+                        ChatbotHost(controller: _chatController, wide: wide),
+                      ],
+                    ),
                   ),
                   if (!wide)
                     NavigationBar(
