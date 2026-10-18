@@ -1,7 +1,6 @@
 abstract final class ChatConfig {
   static const baseUrl = String.fromEnvironment(
-    'LM_STUDIO_URL',
-    defaultValue: 'http://127.0.0.1:1234/v1',
+    'LM_STUDIO_BASE_URL',
   );
   static const model = String.fromEnvironment(
     'LM_STUDIO_MODEL',

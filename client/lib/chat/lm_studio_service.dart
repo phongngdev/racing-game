@@ -23,7 +23,7 @@ class LMStudioException implements Exception {
   final bool isWeb;
 
   String get userMessage => switch (kind) {
-    LMStudioFailure.configuration => 'Cấu hình LM Studio chưa hợp lệ. Hãy kiểm tra LM_STUDIO_URL và LM_STUDIO_MODEL.',
+    LMStudioFailure.configuration => 'Cấu hình LM Studio chưa hợp lệ. Hãy kiểm tra LM_STUDIO_BASE_URL và LM_STUDIO_MODEL.',
     LMStudioFailure.network =>
       isWeb
           ? 'Không gọi được LM Studio. Hãy kiểm tra IP, cổng 1234 và máy chủ đang chạy. Nếu Console báo CORS, bật “Enable CORS” trong LM Studio rồi khởi động lại server.'
@@ -196,7 +196,7 @@ class LMStudioService implements ChatService {
         (path!.isNotEmpty && path != '/' && path != '/v1')) {
       throw const LMStudioException(
         LMStudioFailure.configuration,
-        'LM_STUDIO_URL must be an HTTP(S) origin with optional /v1 path.',
+        'LM_STUDIO_BASE_URL must be an HTTP(S) origin with optional /v1 path.',
       );
     }
     return parsed.replace(path: '/v1/chat/completions');

@@ -29,7 +29,7 @@ void main() {
     });
     final service = LMStudioService(
       client: client,
-      baseUrl: 'http://10.12.66.187:1234/v1/',
+      baseUrl: 'http://127.0.0.1:1234/v1/',
     );
     addTearDown(service.close);
     final history = [
@@ -44,7 +44,7 @@ void main() {
 
     expect(
       captured.url.toString(),
-      'http://10.12.66.187:1234/v1/chat/completions',
+      'http://127.0.0.1:1234/v1/chat/completions',
     );
     expect(captured.headers['authorization'], isNull);
     final payload = jsonDecode(captured.body) as Map<String, dynamic>;
