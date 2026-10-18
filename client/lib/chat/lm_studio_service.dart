@@ -77,10 +77,13 @@ class LMStudioService implements ChatService {
     final recentMessages = history.length <= ChatConfig.maxContextMessages
         ? history
         : history.skip(history.length - ChatConfig.maxContextMessages).toList();
-    final messages = <Map<String, String>>[
+    final messages = <Map<String, Object?>>[
       {'role': 'system', 'content': ChatConfig.systemInstruction.trim()},
-      for (final message in recentMessages)
-        {'role': message.apiRole, 'content': message.content},
+      for (var index = 0; index < recentMessages.length; index++)
+        _serializeMessage(
+          recentMessages[index],
+          includeImage: index == recentMessages.length - 1,
+        ),
     ];
 
     try {
@@ -153,6 +156,29 @@ class LMStudioService implements ChatService {
     } catch (error) {
       throw LMStudioException(LMStudioFailure.network, '$error', isWeb: kIsWeb);
     }
+  }
+
+  Map<String, Object?> _serializeMessage(
+    ChatMessage message, {
+    required bool includeImage,
+  }) {
+    final image = includeImage ? message.image : null;
+    if (message.role == ChatRole.user && image != null) {
+      return {
+        'role': message.apiRole,
+        'content': [
+          {'type': 'text', 'text': message.content},
+          {
+            'type': 'image_url',
+            'image_url': {
+              'url':
+                  'data:${image.mimeType};base64,${base64Encode(image.bytes)}',
+            },
+          },
+        ],
+      };
+    }
+    return {'role': message.apiRole, 'content': message.content};
   }
 
   Uri get _endpoint {
