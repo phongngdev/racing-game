@@ -39,6 +39,10 @@ The Mac running Chrome and the LM Studio host must be able to reach each other o
 
 The conversation stays in memory while navigating the five tabs and is cleared when the racing session ends. The full transcript remains visible, while each request sends the system instruction plus the latest 20 user/assistant messages.
 
+The chat composer can attach one JPEG or PNG per message. Images are checked, resized so the longest edge is at most 1280 pixels, and limited to 10 MiB before processing and 5 MiB after resizing. The image preview remains in the transcript. Its Base64 data is sent with that message (and when retrying it); later requests retain the text transcript without resending earlier image data. If the assistant needs to inspect an earlier image again, attach it to a new message.
+
+To verify image chat, run the Web command above, attach a JPEG and ask what is shown, then repeat with a PNG. Also try sending a PNG with no typed text to check the default analysis prompt, and send a follow-up question to confirm the old image is not uploaded again. In the browser Network panel, the request to `/chat/completions` should contain an `image_url` data URL with `image/jpeg` or `image/png`. If the browser Console reports CORS, enable **Enable CORS** in LM Studio and restart its local server; no NestJS proxy is used.
+
 Android and iOS builds also need `LM_STUDIO_URL` set to an address reachable from that device. Android permits the current HTTP address in debug builds only. iOS may require a local-network usage description and a narrowly scoped App Transport Security setting. Do not use a broad arbitrary-loads exception for this local HTTP demo; prefer HTTPS for release builds.
 
 For a physical Android device, connect the computer and phone to the same network, allow inbound connections to port `3000`, and use the computer's LAN address (for example `http://192.168.1.20:3000`):

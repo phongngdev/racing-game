@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -84,6 +85,103 @@ void main() {
 
     expect(response.truncated, isTrue);
   });
+
+  test(
+    'sends JPEG and PNG as Base64 data URLs on the attached turn only',
+    () async {
+      for (final fixture in [
+        (mime: 'image/jpeg', bytes: <int>[0xFF, 0xD8, 0xFF, 0x01]),
+        (mime: 'image/png', bytes: <int>[137, 80, 78, 71, 13, 10, 26, 10]),
+      ]) {
+        late http.Request captured;
+        final imageService = LMStudioService(
+          client: MockClient((request) async {
+            captured = request;
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'choices': [
+                    {
+                      'message': {'content': 'Đã xem ảnh.'},
+                      'finish_reason': 'stop',
+                    },
+                  ],
+                }),
+              ),
+              200,
+            );
+          }),
+        );
+        final image = ChatImageAttachment(
+          bytes: Uint8List.fromList(fixture.bytes),
+          mimeType: fixture.mime,
+          fileName: 'test.${fixture.mime == 'image/png' ? 'png' : 'jpg'}',
+        );
+        await imageService.complete([
+          ChatMessage(
+            role: ChatRole.user,
+            content: 'Phân tích ảnh',
+            image: image,
+          ),
+        ]);
+        final requestMessages =
+            (jsonDecode(captured.body) as Map<String, dynamic>)['messages']
+                as List<dynamic>;
+        final content = requestMessages.last['content'] as List<dynamic>;
+        final imageUrl = (content.last['image_url'] as Map)['url'] as String;
+        expect(
+          imageUrl,
+          'data:${fixture.mime};base64,${base64Encode(image.bytes)}',
+        );
+        expect(base64Decode(imageUrl.split(',').last), image.bytes);
+        imageService.close();
+      }
+
+      final oldImage = ChatImageAttachment(
+        bytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0x01]),
+        mimeType: 'image/jpeg',
+        fileName: 'old.jpg',
+      );
+      late http.Request followUpRequest;
+      final followUpService = LMStudioService(
+        client: MockClient((request) async {
+          followUpRequest = request;
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'choices': [
+                  {
+                    'message': {'content': 'Hãy gửi lại ảnh để xem chi tiết.'},
+                    'finish_reason': 'stop',
+                  },
+                ],
+              }),
+            ),
+            200,
+          );
+        }),
+      );
+      addTearDown(followUpService.close);
+      await followUpService.complete([
+        ChatMessage(
+          role: ChatRole.user,
+          content: 'Phân tích ảnh',
+          image: oldImage,
+        ),
+        const ChatMessage(
+          role: ChatRole.assistant,
+          content: 'Một chiếc xe RC.',
+        ),
+        const ChatMessage(role: ChatRole.user, content: 'Nhãn hiệu nào?'),
+      ]);
+      final followUpMessages =
+          (jsonDecode(followUpRequest.body) as Map<String, dynamic>)['messages']
+              as List<dynamic>;
+      expect(followUpMessages[1]['content'], 'Phân tích ảnh');
+      expect(followUpMessages[3]['content'], 'Nhãn hiệu nào?');
+      expect(followUpRequest.body, isNot(contains('data:image/')));
+    },
+  );
 
   test('classifies malformed responses and server failures', () async {
     final malformed = LMStudioService(

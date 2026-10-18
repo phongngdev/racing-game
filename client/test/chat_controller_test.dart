@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/chat/chat_controller.dart';
+import 'package:racing_client/chat/chat_config.dart';
+import 'package:racing_client/chat/chat_image_picker.dart';
 import 'package:racing_client/chat/chat_message.dart';
 import 'package:racing_client/chat/lm_studio_service.dart';
 
@@ -59,6 +62,61 @@ void main() {
     await first;
     expect(controller.messages, hasLength(2));
   });
+
+  test(
+    'image-only send uses a default prompt and retry keeps the image',
+    () async {
+      final image = ChatImageAttachment(
+        bytes: Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10]),
+        mimeType: 'image/png',
+        fileName: 'rc-car.png',
+      );
+      final service = _FakeChatService()
+        ..nextError = const LMStudioException(
+          LMStudioFailure.network,
+          'offline',
+        );
+      final controller = ChatController(
+        service,
+        imageSelector: () async => image,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.selectImage();
+      expect(controller.pendingImage, same(image));
+      await controller.send('');
+
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.single.content, ChatConfig.defaultImagePrompt);
+      expect(controller.messages.single.image, same(image));
+      expect(controller.pendingImage, isNull);
+      expect(controller.canRetry, isTrue);
+
+      await controller.retry();
+      expect(controller.messages, hasLength(2));
+      expect(service.calls, hasLength(2));
+      expect(service.calls.last.single.image, same(image));
+    },
+  );
+
+  test(
+    'reports image selection failures without changing the transcript',
+    () async {
+      final controller = ChatController(
+        _FakeChatService(),
+        imageSelector: () async => throw const ChatImageSelectionException(
+          'Hãy chọn ảnh JPEG hoặc PNG.',
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.selectImage();
+
+      expect(controller.messages, isEmpty);
+      expect(controller.imageError, 'Hãy chọn ảnh JPEG hoặc PNG.');
+      expect(controller.selectingImage, isFalse);
+    },
+  );
 }
 
 class _FakeChatService implements ChatService {

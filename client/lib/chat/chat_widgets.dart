@@ -240,8 +240,9 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
   Future<void> _send() async {
     final text = widget.draftController.text;
-    if (text.trim().isEmpty ||
+    if ((text.trim().isEmpty && widget.controller.pendingImage == null) ||
         widget.controller.loading ||
+        widget.controller.selectingImage ||
         widget.controller.error != null) {
       return;
     }
@@ -288,7 +289,9 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           const Divider(height: 1, color: Color(0xFFE8EBF0)),
           _ChatComposer(
             controller: widget.draftController,
-            enabled: !widget.controller.loading,
+            chatController: widget.controller,
+            enabled:
+                !widget.controller.loading && !widget.controller.selectingImage,
             canSend: widget.controller.error == null,
             onSend: _send,
           ),
@@ -354,6 +357,24 @@ class _MessageBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (message.image case final image?) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.memory(
+                image.bytes,
+                width: 300,
+                height: 180,
+                fit: BoxFit.contain,
+                semanticLabel: image.fileName,
+                errorBuilder: (context, error, stackTrace) => const SizedBox(
+                  width: 300,
+                  height: 70,
+                  child: Center(child: Text('Không hiển thị được ảnh')),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           SelectableText(
             message.content,
             style: TextStyle(
@@ -447,12 +468,14 @@ class _RetryMessage extends StatelessWidget {
 class _ChatComposer extends StatelessWidget {
   const _ChatComposer({
     required this.controller,
+    required this.chatController,
     required this.enabled,
     required this.canSend,
     required this.onSend,
   });
 
   final TextEditingController controller;
+  final ChatController chatController;
   final bool enabled;
   final bool canSend;
   final Future<void> Function() onSend;
@@ -462,43 +485,119 @@ class _ChatComposer extends StatelessWidget {
     top: false,
     child: Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              enabled: enabled,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: enabled && canSend
-                  ? (_) => unawaited(onSend())
-                  : null,
-              decoration: InputDecoration(
-                hintText: 'Nhập câu hỏi…',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+          if (chatController.pendingImage case final image?)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.memory(
+                      image.bytes,
+                      width: 56,
+                      height: 56,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox(
+                            width: 56,
+                            height: 56,
+                            child: Icon(Icons.broken_image_outlined),
+                          ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      image.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF475467),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Xóa ảnh đính kèm',
+                    onPressed: enabled
+                        ? chatController.removePendingImage
+                        : null,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+          if (chatController.imageError case final error?)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  error,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFB42318),
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) => IconButton.filled(
-              tooltip: 'Gửi tin nhắn',
-              onPressed: enabled && canSend && value.text.trim().isNotEmpty
-                  ? () => unawaited(onSend())
-                  : null,
-              icon: const Icon(Icons.send_rounded, size: 19),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              IconButton(
+                tooltip: 'Chọn ảnh',
+                onPressed: enabled ? chatController.selectImage : null,
+                icon: chatController.selectingImage
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.attach_file_rounded),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  enabled: enabled,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: enabled && canSend
+                      ? (_) => unawaited(onSend())
+                      : null,
+                  decoration: InputDecoration(
+                    hintText: 'Nhập câu hỏi…',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (context, value, _) => IconButton.filled(
+                  tooltip: 'Gửi tin nhắn',
+                  onPressed:
+                      enabled &&
+                          canSend &&
+                          (value.text.trim().isNotEmpty ||
+                              chatController.pendingImage != null)
+                      ? () => unawaited(onSend())
+                      : null,
+                  icon: const Icon(Icons.send_rounded, size: 19),
+                ),
+              ),
+            ],
           ),
         ],
       ),
