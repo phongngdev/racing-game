@@ -7,9 +7,11 @@ class RacePage extends StatefulWidget {
     super.key,
     required this.onCollision,
     required this.onFinish,
+    required this.onPlayWebRacing,
   });
   final VoidCallback onCollision;
   final VoidCallback onFinish;
+  final VoidCallback onPlayWebRacing;
 
   @override
   State<RacePage> createState() => _RacePageState();
@@ -36,6 +38,16 @@ class _RacePageState extends State<RacePage> {
             paused: _paused,
             onPause: () => setState(() => _paused = !_paused),
             onFinish: widget.onFinish,
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: widget.onPlayWebRacing,
+              icon: const Icon(Icons.sports_motorsports_rounded, size: 18),
+              label: const Text('Chơi thử Web Racing'),
+              style: FilledButton.styleFrom(backgroundColor: demoBlue),
+            ),
           ),
           const SizedBox(height: 16),
           LayoutBuilder(

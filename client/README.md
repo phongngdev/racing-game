@@ -19,6 +19,30 @@ flutter run -d chrome --web-hostname localhost --web-port 5173 \
 
 `API_BASE_URL` is required at build/run time. For another Web origin or port, add its exact origin to the comma-separated `CORS_ORIGINS` setting in the server's local `.env`, then restart the API. Do not add a trailing API path to `API_BASE_URL`.
 
+## Web Racing prototype
+
+Milestone 1 can run without the API or MongoDB. Start the standalone two-player
+keyboard prototype from `client/`:
+
+```bash
+flutter pub get
+flutter run -d chrome -t lib/main_racing.dart \
+  --web-hostname localhost --web-port 5174
+```
+
+Player 1 (red) uses `W A S D` and reserves `Q` for the horn input. Player 2
+(blue) uses the arrow keys and reserves `M` for the horn input. Horn input is
+available to the game logic, but the prototype does not play horn audio. Keep
+the game focused while driving. Use **Bắt đầu đua**, **Tạm dừng**, **Reset xe**,
+or `Esc` to pause. The existing authenticated app also has a **Chơi thử Web
+Racing** button on its race tab.
+
+Build the standalone Web entrypoint with:
+
+```bash
+flutter build web -t lib/main_racing.dart
+```
+
 ## Apex RC AI assistant
 
 The floating chat assistant calls the LM Studio OpenAI-compatible endpoint directly. Set `LM_STUDIO_BASE_URL` at build/run time to the address of the computer running LM Studio. The local Web command above uses `http://192.168.101.139:1234/v1`. The model defaults to `google/gemma-4-e2b` and can be changed with `LM_STUDIO_MODEL`.
@@ -64,7 +88,9 @@ Registering in the client always calls the public User registration endpoint. Cr
 
 ```bash
 flutter analyze
-flutter test
+flutter test \
+  --dart-define=LM_STUDIO_BASE_URL=http://127.0.0.1:1234/v1 \
+  --dart-define=LM_STUDIO_MODEL=google/gemma-4-e2b
 flutter build web \
   --dart-define=API_BASE_URL=http://127.0.0.1:3000 \
   --dart-define=LM_STUDIO_BASE_URL=http://192.168.101.139:1234/v1 \

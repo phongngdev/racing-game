@@ -6,6 +6,7 @@ import 'package:racing_client/auth/session_user.dart';
 import 'package:racing_client/chat/chat_message.dart';
 import 'package:racing_client/chat/lm_studio_service.dart';
 import 'package:racing_client/main.dart';
+import 'package:racing_client/racing/racing_page.dart';
 
 import 'support/fakes.dart';
 
@@ -48,6 +49,51 @@ void main() {
     expect(find.text('Đã bình chọn tái đấu'), findsOneWidget);
     await _tap(tester, find.text('Chơi lại'));
     expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
+  });
+
+  testWidgets('User can open and return from the standalone web racing game', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = _signedInAuth(AppRole.user);
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(
+      MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
+    );
+    await tester.pumpAndSettle();
+
+    await _tap(tester, find.text('Đường đua'));
+    expect(find.text('Chơi thử Web Racing'), findsOneWidget);
+    await tester.tap(find.text('Chơi thử Web Racing'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('WEB RACING PROTOTYPE'), findsOneWidget);
+    expect(find.text('Bắt đầu đua'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Quay lại'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Bảng điều khiển đường đua'), findsOneWidget);
+  });
+
+  testWidgets('Racing page start and pause buttons toggle simulation state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const MaterialApp(home: RacingPage()));
+    await tester.pump();
+
+    await tester.tap(find.text('Bắt đầu đua'));
+    await tester.pump();
+    expect(find.text('Tạm dừng'), findsOneWidget);
+
+    await tester.tap(find.text('Tạm dừng'));
+    await tester.pump();
+    expect(find.text('Bắt đầu đua'), findsOneWidget);
   });
 
   testWidgets('User can open the catalog in read-only mode and log out', (

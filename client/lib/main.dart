@@ -16,6 +16,7 @@ import 'pages/connect_page.dart';
 import 'pages/race_page.dart';
 import 'pages/result_page.dart';
 import 'pages/tuning_page.dart';
+import 'racing/racing_page.dart';
 
 void main() => runApp(const MyApp());
 
@@ -268,7 +269,16 @@ class _DemoShellState extends State<DemoShell> {
     final pages = <Widget>[
       ConnectPage(onConnected: () => _goTo(1)),
       TuningPage(onStartRace: () => _goTo(2)),
-      RacePage(onCollision: () => _goTo(3), onFinish: () => _goTo(4)),
+      RacePage(
+        onCollision: () => _goTo(3),
+        onFinish: () => _goTo(4),
+        onPlayWebRacing: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                RacingPage(onBack: () => Navigator.of(context).pop()),
+          ),
+        ),
+      ),
       CollisionPage(onRecovered: () => _goTo(2)),
       ResultPage(onRematch: () => _goTo(1)),
     ];
