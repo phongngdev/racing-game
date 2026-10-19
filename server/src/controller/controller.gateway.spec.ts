@@ -120,4 +120,67 @@ describe('ControllerGateway', () => {
     });
     expect(second.closeCode).toBe(1008);
   });
+
+  it('creates an isolated v2 session and accepts only its paired phone', () => {
+    const gateway = new ControllerGateway();
+    const game = socket();
+    const phone = socket();
+    const otherPhone = socket();
+    gateway.onRegister(game, {
+      role: 'game',
+      version: 2,
+      action: 'create',
+    });
+    const pairing = messages(game)[0]?.data;
+    expect(messages(game)[0]?.event).toBe('registered');
+    expect(pairing).toMatchObject({ role: 'game' });
+
+    gateway.onRegister(phone, {
+      role: 'phone',
+      version: 2,
+      action: 'join',
+      sessionId: pairing?.sessionId,
+      pairingToken: pairing?.pairingToken,
+    });
+    const phoneRegistration = messages(phone)[0];
+    expect(phoneRegistration?.event).toBe('registered');
+    expect(phoneRegistration?.data).toMatchObject({
+      role: 'phone',
+      sessionId: pairing?.sessionId,
+      generation: 1,
+    });
+    expect(typeof phoneRegistration?.data.resumeToken).toBe('string');
+
+    gateway.onRegister(otherPhone, {
+      role: 'phone',
+      version: 2,
+      action: 'join',
+      sessionId: pairing?.sessionId,
+      pairingToken: pairing?.pairingToken,
+    });
+    expect(messages(otherPhone)[0]).toEqual({
+      event: 'error',
+      data: { code: 'phone_already_joined' },
+    });
+    expect(otherPhone.closeCode).toBe(1008);
+
+    gateway.onInput(phone, {
+      seq: 0,
+      steering: 0.25,
+      throttle: 0,
+      reverse: 0,
+      brake: 0,
+    });
+    expect(messages(game).at(-1)).toEqual({
+      event: 'input',
+      data: {
+        seq: 0,
+        steering: 0.25,
+        throttle: 0,
+        reverse: 0,
+        brake: 0,
+        generation: 1,
+      },
+    });
+  });
 });

@@ -1,18 +1,19 @@
 # Apex RC Flutter client
 
-The main Flutter app has Trang chủ, Chơi, and Cài đặt destinations, plus registration, login, role-aware entry, and an isolated product/category catalog. The Chơi tab opens Practice with keyboard controls; it reuses the racing game without requiring the phone relay. The standalone Web Racing prototype remains available through `main_racing.dart`. User accounts can view catalog data. Admin accounts can create, edit with `PUT`, and delete catalog records; the API enforces these permissions.
+The main Flutter app has Trang chủ, Chơi, and Cài đặt destinations, plus registration, login, role-aware entry, and an isolated product/category catalog. Practice supports keyboard controls or a paired Android phone controller. The standalone Web Racing prototype remains available through `main_racing.dart`, and the standalone manual phone controller remains available through `main_controller.dart`. User accounts can view catalog data. Admin accounts can create, edit with `PUT`, and delete catalog records; the API enforces these permissions.
 
 ## Run with the local NestJS API
 
 Start MongoDB and the API first by following [`../server/README.md`](../server/README.md). The Nest server listens on port `3000` by default.
 
-For Flutter Web, use the exact default CORS origin and port:
+For Flutter Web, use the exact default CORS origin and port. Set the controller URL to the LAN address of the NestJS relay when using Practice with a phone:
 
 ```bash
 cd client
 flutter pub get
 flutter run -d chrome --web-hostname localhost --web-port 5173 \
   --dart-define=API_BASE_URL=http://127.0.0.1:3000 \
+  --dart-define=CONTROLLER_WS_URL=ws://192.168.1.20:3000/controller \
   --dart-define=LM_STUDIO_BASE_URL=http://192.168.101.139:1234/v1 \
   --dart-define=LM_STUDIO_MODEL=google/gemma-4-e2b
 ```
@@ -43,42 +44,42 @@ inside the game to start the simulation. This keyboard Practice path does not
 create a phone relay connection; the phone controller remains available in the
 standalone prototype.
 
-### Phone Controller MVP
+### Practice phone pairing
 
-Start NestJS and MongoDB using [`../server/README.md`](../server/README.md),
-then run the game command above on the PC. Choose **Điện thoại** for the red
-car. On the Xiaomi, connect to the same Wi-Fi and run the controller entry
-point from `client/`:
+Start NestJS using [`../server/README.md`](../server/README.md). On the PC,
+start the main Flutter Web app with `CONTROLLER_WS_URL` set to the relay's
+reachable LAN address. In **Chơi → Practice**, choose **Điện thoại**. If the
+URL is not configured, enter it in the setup screen. The address must use the
+NestJS machine's LAN IP and `/controller` path; `localhost` and `127.0.0.1`
+cannot be used in a QR code.
+
+On the Xiaomi, install/run the Android app from `main.dart` (not the standalone
+manual controller entry point):
 
 ```bash
 flutter devices
-flutter run -d <xiaomi-device-id> -t lib/main_controller.dart \
-  --dart-define=CONTROLLER_WS_URL=ws://<computer-lan-ip>:3000/controller
+flutter run -d <xiaomi-device-id>
 ```
 
-The controller URL can also be entered in the phone UI. Use the PC's LAN IP
-there; `localhost` on Android refers to the phone. Hold the phone in landscape,
-connect, keep the phone straight, then press **Cân tâm** and hold it steady for
-half a second. Once calibrated, hold the phone in front of you and lower its
-left/right end like a steering wheel to turn left/right. Hold **GA** to
-accelerate or **LÙI** to reverse. Releasing or cancelling a touch releases the
-pedal. Reverse speed is capped at half of forward speed. Holding the opposite
-pedal slows the car to zero over 150 ms before changing direction. While a pedal
-is held, the car moves at its set speed; releasing both pedals stops it
-immediately. Steering follows the car's heading without sideways sliding.
-Collisions involving the red car send one short haptic pulse to the controller.
-Use **Rung va chạm** on the phone to turn collision vibration on or off; it is
-enabled by default. **Thử rung** checks the vibration motor without connecting
-to the relay. The controller pauses and must be calibrated again after the app
-returns from the background.
+Tap **Quét QR** on the Android entry screen; no Google sign-in is needed for the
+controller. Allow camera access, scan the PC code, hold the phone in landscape,
+keep it straight, and press **Cân tâm** when the sensor is ready. The phone
+shows GA/LÙI, steering and collision vibration controls. The PC enables
+**Bắt đầu Practice** only after the phone has calibrated, sent a fresh sensor
+sample, and released both pedals. Then press the in-game **Bắt đầu đua** button.
 
-Start and reset the race from the PC. Select **Bàn phím** to use WASD for the
-red car; arrow keys continue to control the blue car. In Phone mode, a lost
-phone input pauses the whole race after 300 ms. Reconnect the phone, release
-both pedals, and press Start on the PC to resume. Allow inbound TCP port 3000
-through the PC firewall and make sure the Wi-Fi network does not isolate
-devices. Add any different game page origin to `CONTROLLER_ALLOWED_ORIGINS` in
-`server/.env` and restart NestJS.
+The QR token expires after five minutes and can only be claimed once. A phone
+may resume with its private in-app credential for up to 30 seconds after a
+detected disconnect; scanning the QR on another phone does not take over the
+session. Leaving the game, switching to keyboard, or losing the PC relay ends
+the session. A new session requires a new QR. If phone input becomes stale,
+Practice pauses and does not resume automatically. Allow inbound TCP port 3000
+through the relay host firewall and make sure Wi-Fi does not isolate devices.
+
+For manual controller debugging, `main_controller.dart` still accepts a
+WebSocket URL directly and uses the original v1 relay protocol. Android debug
+builds already allow cleartext LAN WebSockets; release builds do not enable a
+global cleartext exception.
 
 Build the standalone Web entrypoint with:
 

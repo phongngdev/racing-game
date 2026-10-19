@@ -135,4 +135,83 @@ describe('controller WebSocket relay integration', () => {
     });
     expect(outcome).toBe('rejected');
   });
+
+  it('pairs a phone to one v2 Practice session and resumes with its private token', async () => {
+    const game = await openSocket(address, {
+      origin: 'http://localhost:5173',
+    });
+    const gameRegistered = nextMessage(game, 'registered');
+    const initialStatus = nextMessage(game, 'status');
+    game.send(
+      JSON.stringify({
+        event: 'register',
+        data: { role: 'game', version: 2, action: 'create' },
+      }),
+    );
+    const pairing = await gameRegistered;
+    await initialStatus;
+    expect(pairing.data['sessionId']).toEqual(expect.any(String));
+    expect(pairing.data['pairingToken']).toEqual(expect.any(String));
+
+    const phone = await openSocket(address);
+    const phoneRegistered = nextMessage(phone, 'registered');
+    const pairedGameStatus = nextMessage(game, 'status');
+    phone.send(
+      JSON.stringify({
+        event: 'register',
+        data: {
+          role: 'phone',
+          version: 2,
+          action: 'join',
+          sessionId: pairing.data['sessionId'],
+          pairingToken: pairing.data['pairingToken'],
+        },
+      }),
+    );
+    const phoneIdentity = await phoneRegistered;
+    expect(phoneIdentity.data['generation']).toBe(1);
+    expect(phoneIdentity.data['resumeToken']).toEqual(expect.any(String));
+    expect((await pairedGameStatus).data).toMatchObject({
+      phoneConnected: true,
+      controllerStage: 'checking',
+    });
+
+    const disconnectedStatus = nextMessage(game, 'status');
+    phone.close();
+    expect((await disconnectedStatus).data).toMatchObject({
+      phoneConnected: false,
+      controllerStage: 'lost',
+    });
+
+    const resumedPhone = await openSocket(address);
+    const resumedRegistration = nextMessage(resumedPhone, 'registered');
+    const resumedStatus = nextMessage(game, 'status');
+    resumedPhone.send(
+      JSON.stringify({
+        event: 'register',
+        data: {
+          role: 'phone',
+          version: 2,
+          action: 'resume',
+          sessionId: pairing.data['sessionId'],
+          resumeToken: phoneIdentity.data['resumeToken'],
+        },
+      }),
+    );
+    const resumedIdentity = await resumedRegistration;
+    expect(resumedIdentity.data['generation']).toBe(2);
+    expect(resumedIdentity.data['resumeToken']).not.toBe(
+      phoneIdentity.data['resumeToken'],
+    );
+    expect((await resumedStatus).data).toMatchObject({
+      phoneConnected: true,
+      controllerStage: 'checking',
+    });
+
+    const sessionEnded = nextMessage(resumedPhone, 'session_ended');
+    game.send(JSON.stringify({ event: 'session_end', data: {} }));
+    await sessionEnded;
+    resumedPhone.close();
+    game.close();
+  });
 });

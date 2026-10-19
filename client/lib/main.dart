@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_services.dart';
@@ -11,8 +12,13 @@ import 'catalog/catalog_repository.dart';
 import 'chat/chat_controller.dart';
 import 'chat/chat_widgets.dart';
 import 'chat/lm_studio_service.dart';
+import 'controller/pairing_payload.dart';
 import 'pages/app_pages.dart';
+import 'pages/android_entry_page.dart';
 import 'pages/practice_setup_page.dart';
+import 'controller/phone_controller_flow_page.dart';
+import 'controller/qr_scanner_page.dart';
+import 'racing/practice_controller_session.dart';
 import 'racing/racing_page.dart';
 
 void main() => runApp(const MyApp());
@@ -113,10 +119,47 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
       ),
-      home: _AuthGate(
-        auth: _auth,
-        catalog: _catalog,
-        chatServiceFactory: widget.chatServiceFactory,
+      home: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+          ? Builder(
+              builder: (context) => AndroidEntryPage(
+                onOpenApp: () => unawaited(
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      settings: const RouteSettings(name: '/app'),
+                      builder: (_) => _AuthGate(
+                        auth: _auth,
+                        catalog: _catalog,
+                        chatServiceFactory: widget.chatServiceFactory,
+                      ),
+                    ),
+                  ),
+                ),
+                onScanQr: () => unawaited(_scanControllerQr(context)),
+              ),
+            )
+          : _AuthGate(
+              auth: _auth,
+              catalog: _catalog,
+              chatServiceFactory: widget.chatServiceFactory,
+            ),
+    );
+  }
+
+  Future<void> _scanControllerQr(BuildContext context) async {
+    final pairing = await Navigator.of(context).push<PairingPayload>(
+      MaterialPageRoute<PairingPayload>(
+        settings: const RouteSettings(name: '/controller/scan'),
+        builder: (_) => const QrScannerPage(),
+      ),
+    );
+    if (!context.mounted || pairing == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/controller'),
+        builder: (routeContext) => PhoneControllerFlowPage(
+          initialPairingPayload: pairing,
+          onExit: () => Navigator.of(routeContext).pop(),
+        ),
       ),
     );
   }
@@ -270,6 +313,20 @@ class _DemoShellState extends State<DemoShell> {
 
   void _goTo(int index) => setState(() => _selectedIndex = index);
 
+  void _openPhoneController() {
+    final navigator = Navigator.of(context);
+    unawaited(
+      navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/controller'),
+          builder: (routeContext) => PhoneControllerFlowPage(
+            onExit: () => Navigator.of(routeContext).pop(),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openPractice() async {
     if (_practiceSetupOpen) return;
     _practiceSetupOpen = true;
@@ -280,7 +337,7 @@ class _DemoShellState extends State<DemoShell> {
           settings: const RouteSettings(name: '/practice/setup'),
           builder: (_) => PracticeSetupPage(
             onBack: () => navigator.pop(),
-            onStart: () => _openPracticeGame(navigator),
+            onStart: (session) => _openPracticeGame(navigator, session),
           ),
         ),
       );
@@ -289,24 +346,26 @@ class _DemoShellState extends State<DemoShell> {
     }
   }
 
-  void _openPracticeGame(NavigatorState navigator) {
+  Future<void> _openPracticeGame(
+    NavigatorState navigator,
+    PracticeControllerSession? session,
+  ) async {
     if (_practiceGameOpen) return;
     _practiceGameOpen = true;
-    unawaited(() async {
-      try {
-        await navigator.push<void>(
-          MaterialPageRoute<void>(
-            settings: const RouteSettings(name: '/practice/game'),
-            builder: (_) => RacingPage(
-              mode: RacingPageMode.practice,
-              onBack: () => navigator.pop(),
-            ),
+    try {
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/practice/game'),
+          builder: (_) => RacingPage(
+            mode: RacingPageMode.practice,
+            practiceSession: session,
+            onBack: () => navigator.pop(),
           ),
-        );
-      } finally {
-        _practiceGameOpen = false;
-      }
-    }());
+        ),
+      );
+    } finally {
+      _practiceGameOpen = false;
+    }
   }
 
   @override
@@ -315,7 +374,13 @@ class _DemoShellState extends State<DemoShell> {
     final pages = <Widget>[
       HomePage(onPlay: () => _goTo(1)),
       PlayPage(onPractice: () => unawaited(_openPractice())),
-      SettingsPage(user: widget.auth.user!),
+      SettingsPage(
+        user: widget.auth.user!,
+        onOpenPhoneController:
+            !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+            ? _openPhoneController
+            : null,
+      ),
     ];
 
     return Scaffold(

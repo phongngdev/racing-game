@@ -39,4 +39,20 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets('QR scanner entry is opt-in and leaves manual URL visible', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const MaterialApp(home: PhoneControllerPage(enableQrPairing: true)),
+    );
+    await tester.pump();
+
+    expect(find.text('Quét QR'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }

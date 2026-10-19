@@ -187,9 +187,14 @@ class _ModeCard extends StatelessWidget {
 }
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, required this.user});
+  const SettingsPage({
+    super.key,
+    required this.user,
+    this.onOpenPhoneController,
+  });
 
   final SessionUser user;
+  final VoidCallback? onOpenPhoneController;
 
   @override
   Widget build(BuildContext context) => _AppPage(
@@ -217,6 +222,55 @@ class SettingsPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
+        if (onOpenPhoneController != null) ...[
+          Text('Tay cầm', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          Card(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final details = const Row(
+                  children: [
+                    Icon(
+                      Icons.qr_code_scanner_rounded,
+                      color: Color(0xFF3267E3),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text('Quét QR để điều khiển Practice trên PC.'),
+                    ),
+                  ],
+                );
+                final action = FilledButton.tonal(
+                  onPressed: onOpenPhoneController,
+                  child: const Text('Mở tay cầm'),
+                );
+                return Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: constraints.maxWidth < 440
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            details,
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: action,
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(child: details),
+                            const SizedBox(width: 8),
+                            action,
+                          ],
+                        ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
         Text('Về Apex RC', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 12),
         Card(

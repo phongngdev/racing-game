@@ -5,6 +5,32 @@ import {
 } from './controller.protocol.js';
 
 describe('controller protocol validation', () => {
+  it('allows the main app and prototype defaults without origin configuration', () => {
+    const previousCors = process.env['CORS_ORIGINS'];
+    const previousController = process.env['CONTROLLER_ALLOWED_ORIGINS'];
+    delete process.env['CORS_ORIGINS'];
+    delete process.env['CONTROLLER_ALLOWED_ORIGINS'];
+    try {
+      const origins = allowedControllerOrigins();
+      expect(origins.has('http://localhost:5173')).toBe(true);
+      expect(origins.has('http://127.0.0.1:5173')).toBe(true);
+      expect(origins.has('http://localhost:5174')).toBe(true);
+      expect(origins.has('http://127.0.0.1:5174')).toBe(true);
+      expect(origins.has('http://untrusted.invalid')).toBe(false);
+      expect(origins.has('http://localhost:51730')).toBe(false);
+
+      process.env['CORS_ORIGINS'] = 'http://localhost:6000';
+      expect(allowedControllerOrigins().has('http://localhost:6000')).toBe(true);
+      expect(allowedControllerOrigins().has('http://localhost:5173')).toBe(false);
+    } finally {
+      if (previousCors === undefined) delete process.env['CORS_ORIGINS'];
+      else process.env['CORS_ORIGINS'] = previousCors;
+      if (previousController === undefined)
+        delete process.env['CONTROLLER_ALLOWED_ORIGINS'];
+      else process.env['CONTROLLER_ALLOWED_ORIGINS'] = previousController;
+    }
+  });
+
   it('accepts normalized finite input and rejects invalid ranges', () => {
     expect(
       isControllerInput({

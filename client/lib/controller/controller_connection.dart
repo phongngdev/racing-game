@@ -14,11 +14,14 @@ class ControllerConnection extends ChangeNotifier {
     required this.uri,
     required this.role,
     required this.onEvent,
+    this.registrationData,
   });
 
   final Uri uri;
   final ControllerRole role;
   final void Function(ControllerMessage message) onEvent;
+  Map<String, Object?>? registrationData;
+  bool autoReconnect = true;
   ControllerConnectionState state = ControllerConnectionState.disconnected;
   WebSocketChannel? _channel;
   StreamSubscription<Object?>? _subscription;
@@ -34,6 +37,7 @@ class ControllerConnection extends ChangeNotifier {
   bool get isConnected => state == ControllerConnectionState.connected;
 
   void connect() {
+    if (state != ControllerConnectionState.disconnected) return;
     _closed = false;
     _retryTimer?.cancel();
     unawaited(_connectOnce());
@@ -62,7 +66,10 @@ class ControllerConnection extends ChangeNotifier {
       );
       await channel.ready;
       if (_closed || !identical(channel, _channel)) return;
-      _send(ControllerEvents.register, {'role': role.name, 'version': 1});
+      _send(
+        ControllerEvents.register,
+        registrationData ?? {'role': role.name, 'version': 1},
+      );
     } catch (_) {
       _handleDisconnect(_channel);
     }
@@ -81,8 +88,29 @@ class ControllerConnection extends ChangeNotifier {
       notifyListeners();
     } else if (message.event == ControllerEvents.pong) {
       _lastPongMs = _clock.elapsedMilliseconds;
+    } else if (message.event == ControllerEvents.sessionEnded) {
+      _stopRetrying();
+      final channel = _channel;
+      if (channel != null) unawaited(channel.sink.close());
+    } else if (message.event == ControllerEvents.error &&
+        _isTerminalPairingError(message.data['code'])) {
+      _stopRetrying();
     }
     onEvent(message);
+  }
+
+  bool _isTerminalPairingError(Object? code) => const {
+    'invalid_pairing',
+    'pairing_expired',
+    'resume_expired',
+    'phone_already_joined',
+    'session_ended',
+  }.contains(code);
+
+  void _stopRetrying() {
+    _closed = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
   }
 
   void _startPing() {
@@ -114,7 +142,7 @@ class ControllerConnection extends ChangeNotifier {
       state = ControllerConnectionState.disconnected;
       notifyListeners();
     }
-    if (_closed || _retryTimer?.isActive == true) return;
+    if (_closed || !autoReconnect || _retryTimer?.isActive == true) return;
     const delays = [500, 1000, 2000, 4000, 5000];
     final delay = delays[_retryAttempt.clamp(0, delays.length - 1)];
     _retryAttempt++;
@@ -152,7 +180,17 @@ class ControllerConnection extends ChangeNotifier {
 
   @override
   void dispose() {
-    unawaited(disconnect());
+    _closed = true;
+    _retryTimer?.cancel();
+    _connectTimer?.cancel();
+    _pingTimer?.cancel();
+    final subscription = _subscription;
+    _subscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) unawaited(channel.sink.close());
+    state = ControllerConnectionState.disconnected;
     super.dispose();
   }
 }

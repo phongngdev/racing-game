@@ -1,13 +1,25 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import 'collision_haptics.dart';
 import 'controller_config.dart';
+import 'pairing_payload.dart';
 import 'phone_controller.dart';
+import 'qr_scanner_page.dart';
 
 class PhoneControllerPage extends StatefulWidget {
-  const PhoneControllerPage({super.key});
+  const PhoneControllerPage({
+    super.key,
+    this.enableQrPairing = false,
+    this.initialPairingPayload,
+    this.onExit,
+  });
+
+  final bool enableQrPairing;
+  final PairingPayload? initialPairingPayload;
+  final VoidCallback? onExit;
 
   @override
   State<PhoneControllerPage> createState() => _PhoneControllerPageState();
@@ -22,6 +34,11 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
     super.initState();
     _urlController = TextEditingController(text: ControllerConfig.webSocketUrl);
     _controller.addListener(_refresh);
+    final pairing = widget.initialPairingPayload;
+    if (pairing != null) {
+      _urlController.text = pairing.relayUrl.toString();
+      unawaited(_controller.connectPairing(pairing));
+    }
   }
 
   void _refresh() {
@@ -42,6 +59,15 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
       ..showSnackBar(
         SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
       );
+  }
+
+  Future<void> _scanQr() async {
+    final payload = await Navigator.of(context).push<PairingPayload>(
+      MaterialPageRoute<PairingPayload>(builder: (_) => const QrScannerPage()),
+    );
+    if (!mounted || payload == null) return;
+    _urlController.text = payload.relayUrl.toString();
+    await _controller.connectPairing(payload);
   }
 
   @override
@@ -69,6 +95,17 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                   children: [
                     Row(
                       children: [
+                        if (widget.onExit != null) ...[
+                          IconButton(
+                            tooltip: 'Quay lại',
+                            onPressed: widget.onExit,
+                            icon: const Icon(
+                              Icons.arrow_back_rounded,
+                              color: Color(0xFFE4EAE5),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
                         const Icon(
                           Icons.sports_motorsports_rounded,
                           color: Color(0xFFB9F34A),
@@ -137,6 +174,8 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                         FilledButton(
                           onPressed: _controller.isAttempting
                               ? _controller.disconnect
+                              : _controller.isPairing
+                              ? _controller.resumePairing
                               : () {
                                   FocusScope.of(context).unfocus();
                                   _controller.connect(_urlController.text);
@@ -149,9 +188,24 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                           child: Text(
                             _controller.isAttempting
                                 ? 'Ngắt kết nối'
+                                : _controller.isPairing
+                                ? 'Kết nối lại'
                                 : 'Kết nối',
                           ),
                         ),
+                        if (widget.enableQrPairing) ...[
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: _scanQr,
+                            icon: const Icon(Icons.qr_code_scanner_rounded),
+                            label: const Text('Quét QR'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFE4EAE5),
+                              side: const BorderSide(color: Color(0xFF39473E)),
+                              minimumSize: Size(118, compact ? 42 : 52),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     SizedBox(height: compact ? 6 : 12),
