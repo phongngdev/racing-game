@@ -20,6 +20,9 @@ void main() {
     final encoded = const ControllerMessage('input', {
       'seq': 3,
       'steering': -0.5,
+      'throttle': 0,
+      'reverse': 1,
+      'brake': 0,
     }).encode();
     final decoded = ControllerMessage.decode(encoded);
     expect(decoded?.event, 'input');

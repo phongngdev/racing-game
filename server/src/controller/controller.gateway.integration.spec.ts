@@ -94,12 +94,29 @@ describe('controller WebSocket relay integration', () => {
     phone.send(
       JSON.stringify({
         event: 'input',
-        data: { seq: 0, steering: -0.4, throttle: 1, brake: 0 },
+        data: {
+          seq: 0,
+          steering: -0.4,
+          throttle: 1,
+          reverse: 0,
+          brake: 0,
+        },
       }),
     );
     const input = await relayedInput;
     expect(input.data).toMatchObject({ seq: 0, steering: -0.4, throttle: 1 });
     expect(input.data['generation']).toBe(registration.data['generation']);
+
+    const collision = nextMessage(phone, 'collision');
+    game.send(
+      JSON.stringify({
+        event: 'collision',
+        data: { generation: registration.data['generation'] },
+      }),
+    );
+    expect((await collision).data['generation']).toBe(
+      registration.data['generation'],
+    );
 
     const disconnected = nextMessage(game, 'status');
     phone.close();

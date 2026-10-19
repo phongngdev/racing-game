@@ -4,6 +4,7 @@ export interface ControllerInput {
   seq: number;
   steering: number;
   throttle: number;
+  reverse?: number;
   brake: number;
 }
 
@@ -26,7 +27,12 @@ export function isControllerInput(value: unknown): value is ControllerInput {
     typeof input['brake'] === 'number' &&
     Number.isFinite(input['brake']) &&
     input['brake'] >= 0 &&
-    input['brake'] <= 1
+    input['brake'] <= 1 &&
+    (input['reverse'] === undefined ||
+      (typeof input['reverse'] === 'number' &&
+        Number.isFinite(input['reverse']) &&
+        input['reverse'] >= 0 &&
+        input['reverse'] <= 1))
   );
 }
 

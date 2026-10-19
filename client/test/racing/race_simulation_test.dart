@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/racing/input/car_input.dart';
@@ -15,6 +17,7 @@ void main() {
       final red = input.inputFor(PlayerId.red);
       final blue = input.inputFor(PlayerId.blue);
       expect(red.throttle, 1);
+      expect(red.reverse, 0);
       expect(red.steering, -1);
       expect(red.horn, isTrue);
       expect(blue.throttle, 1);
@@ -22,36 +25,95 @@ void main() {
       expect(blue.horn, isFalse);
 
       input.handleKey(LogicalKeyboardKey.keyS, true);
-      expect(input.inputFor(PlayerId.red).throttle, 0);
-      expect(input.inputFor(PlayerId.red).brake, 1);
-      input.clear();
+      expect(input.inputFor(PlayerId.red).reverse, 1);
       expect(input.inputFor(PlayerId.red).brake, 0);
+      input.clear();
+      expect(input.inputFor(PlayerId.red).reverse, 0);
+      input.handleKey(LogicalKeyboardKey.arrowDown, true);
+      expect(input.inputFor(PlayerId.blue).reverse, 1);
+      input.clear();
       expect(input.inputFor(PlayerId.blue).throttle, 0);
     });
   });
 
   group('RaceSimulation', () {
-    test('accelerates, naturally slows, brakes, and steers', () {
+    test('moves directly at fixed speed, stops on release, and steers', () {
       final simulation = RaceSimulation();
       addTearDown(simulation.dispose);
       final input = _TestInput();
       simulation.setRunning(true);
       input.values[PlayerId.red] = const CarInput(throttle: 1, steering: 1);
-      _advance(simulation, input, 1);
-      final topSpeed = simulation.red.speed;
+      _advance(simulation, input, 0.25);
       final heading = simulation.red.heading;
-      expect(topSpeed, greaterThan(100));
-      expect(topSpeed, lessThanOrEqualTo(simulation.config.maxSpeed));
-      expect(heading, greaterThan(0.5));
+      expect(simulation.red.speed, simulation.config.maxSpeed);
+      expect(heading, closeTo(0.6, 0.02));
+      expect(
+        simulation.red.velocity.x,
+        closeTo(math.cos(heading) * simulation.config.maxSpeed, 0.001),
+      );
+      expect(
+        simulation.red.velocity.y,
+        closeTo(math.sin(heading) * simulation.config.maxSpeed, 0.001),
+      );
 
       input.values[PlayerId.red] = const CarInput();
-      _advance(simulation, input, 0.5);
-      final coastingSpeed = simulation.red.speed;
-      expect(coastingSpeed, lessThan(topSpeed));
+      _advance(simulation, input, 1 / 120);
+      expect(simulation.red.speed, 0);
+      expect(simulation.red.heading, heading);
+    });
 
-      input.values[PlayerId.red] = const CarInput(brake: 1);
-      _advance(simulation, input, 0.25);
-      expect(simulation.red.speed, lessThan(coastingSpeed));
+    test('direction changes pass through zero over 150 milliseconds', () {
+      final simulation = RaceSimulation();
+      addTearDown(simulation.dispose);
+      final input = _TestInput();
+      simulation.setRunning(true);
+
+      input.values[PlayerId.red] = const CarInput(throttle: 1);
+      _advance(simulation, input, 1 / 120);
+      expect(simulation.red.driveSpeed, simulation.config.maxSpeed);
+
+      input.values[PlayerId.red] = const CarInput(reverse: 1);
+      _advance(simulation, input, 0.075);
+      expect(simulation.red.driveSpeed, closeTo(130, 1));
+      _advance(simulation, input, 0.075);
+      expect(simulation.red.driveSpeed, closeTo(-130, 1));
+      expect(
+        simulation.red.speed,
+        lessThanOrEqualTo(simulation.config.maxReverseSpeed),
+      );
+    });
+
+    test(
+      'releasing during a direction change stops and cancels the switch',
+      () {
+        final simulation = RaceSimulation();
+        addTearDown(simulation.dispose);
+        final input = _TestInput();
+        simulation.setRunning(true);
+        input.values[PlayerId.red] = const CarInput(throttle: 1);
+        _advance(simulation, input, 1 / 120);
+        input.values[PlayerId.red] = const CarInput(reverse: 1);
+        _advance(simulation, input, 0.075);
+        expect(simulation.red.driveSpeed, closeTo(130, 1));
+
+        input.values[PlayerId.red] = const CarInput();
+        _advance(simulation, input, 1 / 120);
+        expect(simulation.red.speed, 0);
+
+        input.values[PlayerId.red] = const CarInput(reverse: 1);
+        _advance(simulation, input, 1 / 120);
+        expect(simulation.red.driveSpeed, -simulation.config.maxReverseSpeed);
+      },
+    );
+
+    test('reverse wins if both direction inputs are held', () {
+      final simulation = RaceSimulation();
+      addTearDown(simulation.dispose);
+      final input = _TestInput();
+      simulation.setRunning(true);
+      input.values[PlayerId.red] = const CarInput(throttle: 1, reverse: 1);
+      _advance(simulation, input, 1 / 120);
+      expect(simulation.red.driveSpeed, -simulation.config.maxReverseSpeed);
     });
 
     test('emits one vehicle impact for a continuous contact', () {
@@ -62,9 +124,11 @@ void main() {
       addTearDown(subscription.cancel);
       simulation.red.position.setValues(230, 180);
       simulation.blue.position.setValues(260, 180);
-      simulation.red.velocity.setValues(100, 0);
-      simulation.blue.velocity.setValues(-100, 0);
+      simulation.red.heading = 0;
+      simulation.blue.heading = math.pi;
       final input = _TestInput()..values.clear();
+      input.values[PlayerId.red] = const CarInput(throttle: 1);
+      input.values[PlayerId.blue] = const CarInput(throttle: 1);
       simulation.setRunning(true);
 
       simulation.update(simulation.config.fixedStep, input);
@@ -73,9 +137,11 @@ void main() {
       expect(events.single.players, [PlayerId.red, PlayerId.blue]);
       expect(events.single.intensity, inInclusiveRange(0, 1));
 
+      expect(simulation.red.speed, 0);
+      expect(simulation.blue.speed, 0);
+
       // Keep the cars at the contact point; repeated resolution is not a new hit.
-      simulation.red.velocity.setZero();
-      simulation.blue.velocity.setZero();
+      input.values.clear();
       _advance(simulation, input, 0.1);
       expect(events, hasLength(1));
     });
@@ -87,8 +153,9 @@ void main() {
       final subscription = simulation.collisionEvents.listen(events.add);
       addTearDown(subscription.cancel);
       simulation.red.position.setValues(120, 81);
-      simulation.red.velocity.setValues(0, -100);
+      simulation.red.heading = -math.pi / 2;
       final input = _TestInput()..values.clear();
+      input.values[PlayerId.red] = const CarInput(throttle: 1);
       simulation.setRunning(true);
 
       simulation.update(simulation.config.fixedStep, input);
@@ -96,14 +163,15 @@ void main() {
       expect(events.single.type, CollisionType.wall);
       expect(events.single.players, [PlayerId.red]);
       expect(events.single.intensity, inInclusiveRange(0, 1));
+      expect(simulation.red.speed, 0);
 
-      simulation.red.velocity.setZero();
+      input.values.clear();
       _advance(simulation, input, 0.08);
       expect(events, hasLength(1));
 
       simulation.red.position.setValues(120, 100);
-      simulation.red.velocity.setValues(0, -100);
       simulation.red.heading = -1.5707963267948966;
+      input.values[PlayerId.red] = const CarInput(throttle: 1);
       _advance(simulation, input, 0.3);
       expect(events, hasLength(2));
     });
@@ -112,7 +180,8 @@ void main() {
       final simulation = RaceSimulation();
       addTearDown(simulation.dispose);
       simulation.red.position.setValues(450, 450);
-      simulation.blue.velocity.setValues(30, 0);
+      simulation.blue.driveSpeed = 30;
+      simulation.blue.syncVelocity();
       simulation.setRunning(true);
 
       simulation.reset();
@@ -122,6 +191,20 @@ void main() {
       expect(simulation.red.position.y, 112);
       expect(simulation.red.speed, 0);
       expect(simulation.blue.position.y, 166);
+      expect(simulation.blue.speed, 0);
+    });
+
+    test('pausing stops both cars immediately', () {
+      final simulation = RaceSimulation();
+      addTearDown(simulation.dispose);
+      simulation.red.driveSpeed = 100;
+      simulation.blue.driveSpeed = -80;
+      simulation.red.syncVelocity();
+      simulation.blue.syncVelocity();
+
+      simulation.setRunning(false);
+
+      expect(simulation.red.speed, 0);
       expect(simulation.blue.speed, 0);
     });
   });

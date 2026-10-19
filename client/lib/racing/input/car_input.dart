@@ -6,12 +6,16 @@ enum PlayerId { red, blue }
 class CarInput {
   const CarInput({
     this.throttle = 0,
+    this.reverse = 0,
     this.brake = 0,
     this.steering = 0,
     this.horn = false,
   });
 
   final double throttle;
+  final double reverse;
+
+  /// Retained for older clients that send a braking input.
   final double brake;
   final double steering;
   final bool horn;
@@ -40,24 +44,24 @@ class KeyboardInputSource implements InputSource {
     final keys = switch (player) {
       PlayerId.red => _PlayerKeys(
         throttle: LogicalKeyboardKey.keyW,
-        brake: LogicalKeyboardKey.keyS,
+        reverse: LogicalKeyboardKey.keyS,
         left: LogicalKeyboardKey.keyA,
         right: LogicalKeyboardKey.keyD,
         horn: LogicalKeyboardKey.keyQ,
       ),
       PlayerId.blue => _PlayerKeys(
         throttle: LogicalKeyboardKey.arrowUp,
-        brake: LogicalKeyboardKey.arrowDown,
+        reverse: LogicalKeyboardKey.arrowDown,
         left: LogicalKeyboardKey.arrowLeft,
         right: LogicalKeyboardKey.arrowRight,
         horn: LogicalKeyboardKey.keyM,
       ),
     };
     final accelerating = _pressed.contains(keys.throttle);
-    final braking = _pressed.contains(keys.brake);
+    final reversing = _pressed.contains(keys.reverse);
     return CarInput(
-      throttle: accelerating && !braking ? 1 : 0,
-      brake: braking ? 1 : 0,
+      throttle: accelerating ? 1 : 0,
+      reverse: reversing ? 1 : 0,
       steering:
           (_pressed.contains(keys.right) ? 1.0 : 0.0) -
           (_pressed.contains(keys.left) ? 1.0 : 0.0),
@@ -69,14 +73,14 @@ class KeyboardInputSource implements InputSource {
 class _PlayerKeys {
   const _PlayerKeys({
     required this.throttle,
-    required this.brake,
+    required this.reverse,
     required this.left,
     required this.right,
     required this.horn,
   });
 
   final LogicalKeyboardKey throttle;
-  final LogicalKeyboardKey brake;
+  final LogicalKeyboardKey reverse;
   final LogicalKeyboardKey left;
   final LogicalKeyboardKey right;
   final LogicalKeyboardKey horn;

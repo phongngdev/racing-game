@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'collision_haptics.dart';
 import 'controller_config.dart';
 import 'phone_controller.dart';
 
@@ -25,6 +26,22 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
 
   void _refresh() {
     if (mounted) setState(() {});
+  }
+
+  Future<void> _testVibration() async {
+    final result = await _controller.testVibration();
+    if (!mounted) return;
+    final message = switch (result) {
+      VibrationResult.played => 'Đã gọi motor rung 80 ms. Nếu chưa rung, kiểm tra cài đặt rung của máy.',
+      VibrationResult.unsupported => 'Điện thoại báo không có motor rung.',
+      VibrationResult.failed => 'Không gọi được motor rung. Xem log Android.',
+      VibrationResult.ignored => 'Hãy thử rung khi ứng dụng đang mở.',
+    };
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+      );
   }
 
   @override
@@ -169,6 +186,17 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                             minimumSize: Size(130, compact ? 36 : 48),
                           ),
                         ),
+                        const SizedBox(width: 6),
+                        OutlinedButton.icon(
+                          onPressed: _testVibration,
+                          icon: const Icon(Icons.vibration_rounded),
+                          label: const Text('Thử rung'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFE4EAE5),
+                            side: const BorderSide(color: Color(0xFF39473E)),
+                            minimumSize: Size(100, compact ? 36 : 48),
+                          ),
+                        ),
                       ],
                     ),
                     SizedBox(height: compact ? 6 : 12),
@@ -200,12 +228,12 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                                 const SizedBox(height: 12),
                                 Expanded(
                                   child: _HoldButton(
-                                    label: 'PHANH',
+                                    label: 'LÙI',
                                     icon: Icons.vertical_align_bottom_rounded,
                                     color: const Color(0xFFFF696E),
                                     active: _controller.isReady,
-                                    pressed: _controller.brakePressed,
-                                    onPressed: _controller.setBrake,
+                                    pressed: _controller.reversePressed,
+                                    onPressed: _controller.setReverse,
                                   ),
                                 ),
                               ],
@@ -215,10 +243,46 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Giữ điện thoại ngang · giữ nút để ga/phanh · thả tay để nhả',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF68756B), fontSize: 10),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Cầm như vô lăng · giữ nút để ga/lùi · thả tay để nhả',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Color(0xFF68756B),
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: _controller.vibrationEnabled
+                              ? 'Tắt rung khi va chạm'
+                              : 'Bật rung khi va chạm',
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Rung va chạm',
+                                style: TextStyle(
+                                  color: Color(0xFFABB6AC),
+                                  fontSize: 10,
+                                ),
+                              ),
+                              Switch(
+                                value: _controller.vibrationEnabled,
+                                onChanged: _controller.setVibrationEnabled,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                activeThumbColor: const Color(0xFFB9F34A),
+                                activeTrackColor: const Color(0xFF526C2A),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

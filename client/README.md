@@ -32,8 +32,9 @@ flutter run -d chrome -t lib/main_racing.dart \
   --dart-define=CONTROLLER_WS_URL=ws://127.0.0.1:3000/controller
 ```
 
-Player 1 (red) uses `W A S D` and reserves `Q` for the horn input. Player 2
-(blue) uses the arrow keys and reserves `M` for the horn input. Horn input is
+Player 1 (red) uses `W` to accelerate, `S` to reverse, and `A/D` to steer,
+reserving `Q` for the horn input. Player 2 (blue) uses the arrow keys with the
+same directions and reserves `M` for the horn input. Horn input is
 available to the game logic, but the prototype does not play horn audio. Keep
 the game focused while driving. Use **Bắt đầu đua**, **Tạm dừng**, **Reset xe**,
 or `Esc` to pause. The existing authenticated app also has a **Chơi thử Web
@@ -55,9 +56,18 @@ flutter run -d <xiaomi-device-id> -t lib/main_controller.dart \
 The controller URL can also be entered in the phone UI. Use the PC's LAN IP
 there; `localhost` on Android refers to the phone. Hold the phone in landscape,
 connect, keep the phone straight, then press **Cân tâm** and hold it steady for
-half a second. Once calibrated, tilt to steer and hold **GA** or **PHANH**.
-Releasing or cancelling a touch releases the pedal. The controller pauses and
-must be calibrated again after the app returns from the background.
+half a second. Once calibrated, hold the phone in front of you and lower its
+left/right end like a steering wheel to turn left/right. Hold **GA** to
+accelerate or **LÙI** to reverse. Releasing or cancelling a touch releases the
+pedal. Reverse speed is capped at half of forward speed. Holding the opposite
+pedal slows the car to zero over 150 ms before changing direction. While a pedal
+is held, the car moves at its set speed; releasing both pedals stops it
+immediately. Steering follows the car's heading without sideways sliding.
+Collisions involving the red car send one short haptic pulse to the controller.
+Use **Rung va chạm** on the phone to turn collision vibration on or off; it is
+enabled by default. **Thử rung** checks the vibration motor without connecting
+to the relay. The controller pauses and must be calibrated again after the app
+returns from the background.
 
 Start and reset the race from the PC. Select **Bàn phím** to use WASD for the
 red car; arrow keys continue to control the blue car. In Phone mode, a lost

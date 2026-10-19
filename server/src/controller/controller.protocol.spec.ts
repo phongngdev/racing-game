@@ -17,6 +17,24 @@ describe('controller protocol validation', () => {
     expect(
       isControllerInput({
         seq: 1,
+        steering: 0,
+        throttle: 0,
+        brake: 0,
+        reverse: 1,
+      }),
+    ).toBe(true);
+    expect(
+      isControllerInput({
+        seq: 1,
+        steering: 0,
+        throttle: 0,
+        brake: 0,
+        reverse: 1.01,
+      }),
+    ).toBe(false);
+    expect(
+      isControllerInput({
+        seq: 1,
         steering: 1.01,
         throttle: 0,
         brake: 0,

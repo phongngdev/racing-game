@@ -20,8 +20,9 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text('GA'), findsOneWidget);
-      expect(find.text('PHANH'), findsOneWidget);
+      expect(find.text('LÙI'), findsOneWidget);
       expect(find.text('Cân tâm'), findsOneWidget);
+      expect(find.text('Thử rung'), findsOneWidget);
 
       // Entering the relay address must remain possible with a landscape IME.
       tester.view.viewInsets = const FakeViewPadding(bottom: 180);
@@ -32,7 +33,7 @@ void main() {
       );
       await tester.pump();
       expect(tester.takeException(), isNull);
-      await tester.ensureVisible(find.text('PHANH'));
+      await tester.ensureVisible(find.text('LÙI'));
       await tester.pump();
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

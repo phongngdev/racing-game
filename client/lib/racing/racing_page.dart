@@ -47,6 +47,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   late final ApexRacingGame _game;
   ControllerConnection? _connection;
   Timer? _remoteWatchdog;
+  StreamSubscription<CollisionEvent>? _collisionSubscription;
   String _controllerError = '';
   bool _hasBeenFocused = false;
 
@@ -60,6 +61,9 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       inputSource: _input,
       snapshot: _snapshot,
       onKeyboardEvent: _handleKeyEvent,
+    );
+    _collisionSubscription = _simulation.collisionEvents.listen(
+      _handleCollision,
     );
     _focusNode.addListener(_handleFocusChange);
     final uri = ControllerConfig.parse(ControllerConfig.webSocketUrl);
@@ -90,6 +94,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     _focusNode.dispose();
     _pageFocusNode.dispose();
     _remoteWatchdog?.cancel();
+    _collisionSubscription?.cancel();
     _connection?.removeListener(_handleConnectionChange);
     _connection?.dispose();
     _input.clear();
@@ -128,6 +133,23 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  void _handleCollision(CollisionEvent event) {
+    if (!event.players.contains(PlayerId.red) ||
+        !_simulation.isRunning ||
+        _input.mode != RacingInputMode.phone ||
+        !_remote.hasFreshInput ||
+        _connection?.isConnected != true) {
+      return;
+    }
+    debugPrint(
+      '[ApexRC] Sending collision vibration request '
+      '(type=${event.type.name}, generation=${_remote.generation}).',
+    );
+    _connection?.send(ControllerEvents.collision, {
+      'generation': _remote.generation,
+    });
+  }
+
   void _handleControllerMessage(ControllerMessage message) {
     final data = message.data;
     switch (message.event) {
@@ -149,17 +171,20 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
         final steering = data['steering'];
         final throttle = data['throttle'];
         final brake = data['brake'];
+        final reverse = data['reverse'] ?? 0;
         if (seq is int &&
             generation is int &&
             steering is num &&
             throttle is num &&
-            brake is num) {
+            brake is num &&
+            reverse is num) {
           _remote.accept(
             sequence: seq,
             generation: generation,
             steering: steering.toDouble(),
             throttle: throttle.toDouble(),
             brake: brake.toDouble(),
+            reverse: reverse.toDouble(),
           );
         }
         break;
@@ -216,7 +241,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     } else {
       if (!_input.canStart) {
         _controllerError = _input.mode == RacingInputMode.phone
-            ? 'Kết nối điện thoại, cân tâm rồi nhả ga/phanh trước khi bắt đầu.'
+            ? 'Kết nối điện thoại, cân tâm rồi nhả ga/lùi trước khi bắt đầu.'
             : 'Chưa nhận được input điều khiển.';
         setState(() {});
         return;
@@ -554,7 +579,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
         ),
         const Spacer(),
         const Text(
-          'GA   tăng tốc      PHANH   giảm tốc\nA / ←   trái      D / →   phải',
+          'GA   tăng tốc      LÙI   lùi\nA / ←   trái      D / →   phải',
           style: TextStyle(
             color: Color(0xFF86918A),
             fontSize: 10,

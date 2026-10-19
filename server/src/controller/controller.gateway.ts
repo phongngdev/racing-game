@@ -41,6 +41,7 @@ export class ControllerGateway
   private lastSequence = -1;
   private rateWindowStarted = 0;
   private rateCount = 0;
+  private lastCollisionAtMs = Number.NEGATIVE_INFINITY;
   private lastPhoneActivityMs = 0;
   private readonly phoneWatchdog = setInterval(() => {
     const phone = this.clients.get('phone');
@@ -151,6 +152,30 @@ export class ControllerGateway
       reason: this.asRecord(data)?.['reason'] === 'sensor' ? 'sensor' : 'phone',
       generation: this.generations.get(client),
     });
+  }
+
+  @SubscribeMessage('collision')
+  onCollision(
+    @ConnectedSocket() client: WebSocket,
+    @MessageBody() data: unknown,
+  ): void {
+    const record = this.asRecord(data);
+    const phone = this.clients.get('phone');
+    const generation = record?.['generation'];
+    if (
+      this.roles.get(client) !== 'game' ||
+      this.clients.get('game') !== client ||
+      !Number.isSafeInteger(generation) ||
+      !phone ||
+      phone.readyState !== phone.OPEN ||
+      this.generations.get(phone) !== generation
+    ) {
+      return;
+    }
+    const now = performance.now();
+    if (now - this.lastCollisionAtMs < 250) return;
+    this.lastCollisionAtMs = now;
+    this.send(phone, 'collision', { generation });
   }
 
   @SubscribeMessage('ping')
