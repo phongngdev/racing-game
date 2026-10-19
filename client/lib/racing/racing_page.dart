@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flame/game.dart';
@@ -5,7 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'apex_racing_game.dart';
+import '../controller/controller_config.dart';
+import '../controller/controller_connection.dart';
+import '../controller/controller_protocol.dart';
 import 'input/car_input.dart';
+import 'input/remote_input_source.dart';
+import 'input/selectable_input_source.dart';
 import 'simulation/race_simulation.dart';
 
 class RacingPage extends StatefulWidget {
@@ -31,18 +37,24 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     LogicalKeyboardKey.keyM,
   };
 
-  final _input = KeyboardInputSource();
+  final _keyboard = KeyboardInputSource();
+  final _remote = RemoteInputSource();
+  late final SelectableInputSource _input;
   final _simulation = RaceSimulation();
   final _snapshot = ValueNotifier(const RaceSnapshot());
   final _pageFocusNode = FocusNode(debugLabel: 'Apex RC racing page');
   final _focusNode = FocusNode(debugLabel: 'Apex RC racing game');
   late final ApexRacingGame _game;
+  ControllerConnection? _connection;
+  Timer? _remoteWatchdog;
+  String _controllerError = '';
   bool _hasBeenFocused = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _input = SelectableInputSource(keyboard: _keyboard, remote: _remote);
     _game = ApexRacingGame(
       simulation: _simulation,
       inputSource: _input,
@@ -50,6 +62,25 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       onKeyboardEvent: _handleKeyEvent,
     );
     _focusNode.addListener(_handleFocusChange);
+    final uri = ControllerConfig.parse(ControllerConfig.webSocketUrl);
+    if (uri != null) {
+      _connection = ControllerConnection(
+        uri: uri,
+        role: ControllerRole.game,
+        onEvent: _handleControllerMessage,
+      )..addListener(_handleConnectionChange);
+      _connection!.connect();
+    } else if (ControllerConfig.webSocketUrl.isNotEmpty) {
+      _controllerError = 'CONTROLLER_WS_URL chưa hợp lệ.';
+    }
+    _remoteWatchdog = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (_simulation.isRunning &&
+          _input.mode == RacingInputMode.phone &&
+          !_remote.hasFreshInput) {
+        _controllerError = 'Mất tín hiệu điện thoại · cuộc đua đã tạm dừng.';
+        _pauseRace();
+      }
+    });
   }
 
   @override
@@ -58,6 +89,9 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     _focusNode.removeListener(_handleFocusChange);
     _focusNode.dispose();
     _pageFocusNode.dispose();
+    _remoteWatchdog?.cancel();
+    _connection?.removeListener(_handleConnectionChange);
+    _connection?.dispose();
     _input.clear();
     _simulation.dispose();
     _snapshot.dispose();
@@ -83,6 +117,79 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     }
   }
 
+  void _handleConnectionChange() {
+    if (_connection?.isConnected != true) {
+      _remote.setConnected(false);
+      if (_input.mode == RacingInputMode.phone && _simulation.isRunning) {
+        _controllerError = 'Mất kết nối relay · cuộc đua đã tạm dừng.';
+        _pauseRace();
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _handleControllerMessage(ControllerMessage message) {
+    final data = message.data;
+    switch (message.event) {
+      case ControllerEvents.status:
+        if (data['phoneConnected'] == true && data['generation'] is int) {
+          _remote.setConnected(true, generation: data['generation'] as int);
+          _controllerError = '';
+        } else if (data['phoneConnected'] == false) {
+          _remote.setConnected(false);
+          if (_input.mode == RacingInputMode.phone && _simulation.isRunning) {
+            _controllerError = 'Điện thoại đã ngắt kết nối · cuộc đua đã dừng.';
+            _pauseRace();
+          }
+        }
+        break;
+      case ControllerEvents.input:
+        final seq = data['seq'];
+        final generation = data['generation'];
+        final steering = data['steering'];
+        final throttle = data['throttle'];
+        final brake = data['brake'];
+        if (seq is int &&
+            generation is int &&
+            steering is num &&
+            throttle is num &&
+            brake is num) {
+          _remote.accept(
+            sequence: seq,
+            generation: generation,
+            steering: steering.toDouble(),
+            throttle: throttle.toDouble(),
+            brake: brake.toDouble(),
+          );
+        }
+        break;
+      case ControllerEvents.unavailable:
+        if (data['generation'] == _remote.generation) {
+          _remote.markUnavailable();
+          if (_input.mode == RacingInputMode.phone && _simulation.isRunning) {
+            _controllerError = 'Cảm biến chưa sẵn sàng · cuộc đua đã dừng.';
+            _pauseRace();
+          }
+        }
+        break;
+      case ControllerEvents.error:
+        _controllerError = data['code'] == 'role_in_use'
+            ? 'Đã có một phiên đua khác kết nối relay.'
+            : 'Relay từ chối kết nối.';
+        unawaited(_connection?.disconnect());
+        break;
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _selectInputMode(RacingInputMode mode) {
+    if (mode == _input.mode) return;
+    _pauseRace();
+    _input.select(mode);
+    _controllerError = '';
+    if (mounted) setState(() {});
+  }
+
   KeyEventResult _handleKeyEvent(KeyEvent event) {
     final key = event.logicalKey;
     if (event is KeyDownEvent) {
@@ -94,9 +201,9 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
         _resetRace();
         return KeyEventResult.handled;
       }
-      if (_isDrivingKey(key)) _input.handleKey(key, true);
+      if (_isDrivingKey(key)) _keyboard.handleKey(key, true);
     } else if (event is KeyUpEvent && _isDrivingKey(key)) {
-      _input.handleKey(key, false);
+      _keyboard.handleKey(key, false);
     }
     return _isDrivingKey(key) ? KeyEventResult.handled : KeyEventResult.ignored;
   }
@@ -107,6 +214,14 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     if (_simulation.isRunning) {
       _pauseRace();
     } else {
+      if (!_input.canStart) {
+        _controllerError = _input.mode == RacingInputMode.phone
+            ? 'Kết nối điện thoại, cân tâm rồi nhả ga/phanh trước khi bắt đầu.'
+            : 'Chưa nhận được input điều khiển.';
+        setState(() {});
+        return;
+      }
+      _controllerError = '';
       _simulation.setRunning(true);
       _focusNode.requestFocus();
       setState(() {});
@@ -267,6 +382,8 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   Widget _controlPanel() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
+      _inputModeCard(),
+      const SizedBox(height: 12),
       _speedCard(),
       const SizedBox(height: 12),
       _actionCard(),
@@ -276,7 +393,60 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   );
 
   Widget _compactControls() => Column(
-    children: [_speedCard(), const SizedBox(height: 10), _actionButtons()],
+    children: [
+      _inputModeCard(),
+      const SizedBox(height: 10),
+      _speedCard(),
+      const SizedBox(height: 10),
+      _actionButtons(),
+    ],
+  );
+
+  Widget _inputModeCard() => _PanelCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'ĐIỀU KHIỂN XE ĐỎ',
+          style: TextStyle(
+            color: Color(0xFF9BA89E),
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.1,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Bàn phím'),
+              selected: _input.mode == RacingInputMode.keyboard,
+              onSelected: (_) => _selectInputMode(RacingInputMode.keyboard),
+            ),
+            ChoiceChip(
+              label: const Text('Điện thoại'),
+              selected: _input.mode == RacingInputMode.phone,
+              onSelected: (_) => _selectInputMode(RacingInputMode.phone),
+            ),
+          ],
+        ),
+        Text(
+          _controllerError.isNotEmpty
+              ? _controllerError
+              : _remote.hasFreshInput
+              ? 'Điện thoại đang gửi tín hiệu.'
+              : _remote.connected
+              ? 'Đang chờ tín hiệu từ điện thoại.'
+              : ControllerConfig.webSocketUrl.isEmpty
+              ? 'Chưa cấu hình CONTROLLER_WS_URL.'
+              : _connection?.isConnected == true
+              ? 'Relay đã nối · chờ điện thoại.'
+              : 'Đang kết nối relay…',
+          style: const TextStyle(color: Color(0xFF96A399), fontSize: 10),
+        ),
+      ],
+    ),
   );
 
   Widget _speedCard() => _PanelCard(
