@@ -14,10 +14,27 @@ import 'input/remote_input_source.dart';
 import 'input/selectable_input_source.dart';
 import 'simulation/race_simulation.dart';
 
+enum RacingPageMode { prototype, practice }
+
+typedef RacingControllerConnectionFactory = ControllerConnection Function({
+  required Uri uri,
+  required ControllerRole role,
+  required void Function(ControllerMessage) onEvent,
+});
+
 class RacingPage extends StatefulWidget {
-  const RacingPage({super.key, this.onBack});
+  const RacingPage({
+    super.key,
+    this.onBack,
+    this.mode = RacingPageMode.prototype,
+    this.controllerConnectionFactory,
+  });
 
   final VoidCallback? onBack;
+  final RacingPageMode mode;
+  final RacingControllerConnectionFactory? controllerConnectionFactory;
+
+  bool get isPractice => mode == RacingPageMode.practice;
 
   @override
   State<RacingPage> createState() => _RacingPageState();
@@ -62,29 +79,42 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       snapshot: _snapshot,
       onKeyboardEvent: _handleKeyEvent,
     );
-    _collisionSubscription = _simulation.collisionEvents.listen(
-      _handleCollision,
-    );
     _focusNode.addListener(_handleFocusChange);
-    final uri = ControllerConfig.parse(ControllerConfig.webSocketUrl);
-    if (uri != null) {
-      _connection = ControllerConnection(
-        uri: uri,
-        role: ControllerRole.game,
-        onEvent: _handleControllerMessage,
-      )..addListener(_handleConnectionChange);
-      _connection!.connect();
-    } else if (ControllerConfig.webSocketUrl.isNotEmpty) {
-      _controllerError = 'CONTROLLER_WS_URL chưa hợp lệ.';
-    }
-    _remoteWatchdog = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      if (_simulation.isRunning &&
-          _input.mode == RacingInputMode.phone &&
-          !_remote.hasFreshInput) {
-        _controllerError = 'Mất tín hiệu điện thoại · cuộc đua đã tạm dừng.';
-        _pauseRace();
+    if (widget.isPractice) {
+      _input.select(RacingInputMode.keyboard);
+    } else {
+      _collisionSubscription = _simulation.collisionEvents.listen(
+        _handleCollision,
+      );
+      final uri = ControllerConfig.parse(ControllerConfig.webSocketUrl);
+      if (uri != null) {
+        final createConnection = widget.controllerConnectionFactory;
+        _connection = createConnection == null
+            ? ControllerConnection(
+                uri: uri,
+                role: ControllerRole.game,
+                onEvent: _handleControllerMessage,
+              )
+            : createConnection(
+                uri: uri,
+                role: ControllerRole.game,
+                onEvent: _handleControllerMessage,
+              );
+        _connection!
+          ..addListener(_handleConnectionChange)
+          ..connect();
+      } else if (ControllerConfig.webSocketUrl.isNotEmpty) {
+        _controllerError = 'CONTROLLER_WS_URL chưa hợp lệ.';
       }
-    });
+      _remoteWatchdog = Timer.periodic(const Duration(milliseconds: 50), (_) {
+        if (_simulation.isRunning &&
+            _input.mode == RacingInputMode.phone &&
+            !_remote.hasFreshInput) {
+          _controllerError = 'Mất tín hiệu điện thoại · cuộc đua đã tạm dừng.';
+          _pauseRace();
+        }
+      });
+    }
   }
 
   @override
@@ -98,6 +128,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     _connection?.removeListener(_handleConnectionChange);
     _connection?.dispose();
     _input.clear();
+    _simulation.setRunning(false);
     _simulation.dispose();
     _snapshot.dispose();
     super.dispose();
@@ -208,6 +239,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   }
 
   void _selectInputMode(RacingInputMode mode) {
+    if (widget.isPractice && mode != RacingInputMode.keyboard) return;
     if (mode == _input.mode) return;
     _pauseRace();
     _input.select(mode);
@@ -272,49 +304,87 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 860;
-    return Focus(
-      focusNode: _pageFocusNode,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF111916),
-        body: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              wide ? 26 : 15,
-              14,
-              wide ? 26 : 15,
-              18,
-            ),
-            child: Column(
-              children: [
-                _header(wide),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: wide
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(child: _gameField()),
-                            const SizedBox(width: 18),
-                            SizedBox(width: 250, child: _controlPanel()),
-                          ],
-                        )
-                      : Column(
-                          children: [
-                            Expanded(child: _gameField()),
-                            const SizedBox(height: 12),
-                            _compactControls(),
-                          ],
-                        ),
-                ),
-                const SizedBox(height: 12),
-                _footer(wide),
-              ],
+    return PopScope<void>(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop && widget.isPractice) _stopPracticeForExit();
+      },
+      child: Focus(
+        focusNode: _pageFocusNode,
+        child: Scaffold(
+          backgroundColor: const Color(0xFF111916),
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final shortViewport =
+                    widget.isPractice && constraints.maxHeight < 600;
+                final wide = constraints.maxWidth >= 860 && !shortViewport;
+                final padding = EdgeInsets.fromLTRB(
+                  wide ? 26 : 15,
+                  14,
+                  wide ? 26 : 15,
+                  18,
+                );
+                if (shortViewport) {
+                  final gameHeight = math.min(
+                    270.0,
+                    math.max(170.0, constraints.maxWidth * 0.48),
+                  );
+                  return SingleChildScrollView(
+                    padding: padding,
+                    child: Column(
+                      children: [
+                        _header(wide),
+                        const SizedBox(height: 14),
+                        SizedBox(height: gameHeight, child: _gameField()),
+                        const SizedBox(height: 12),
+                        _compactControls(),
+                        const SizedBox(height: 12),
+                        _footer(wide),
+                      ],
+                    ),
+                  );
+                }
+                return Padding(
+                  padding: padding,
+                  child: Column(
+                    children: [
+                      _header(wide),
+                      const SizedBox(height: 14),
+                      Expanded(
+                        child: wide
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(child: _gameField()),
+                                  const SizedBox(width: 18),
+                                  SizedBox(width: 250, child: _controlPanel()),
+                                ],
+                              )
+                            : Column(
+                                children: [
+                                  Expanded(child: _gameField()),
+                                  const SizedBox(height: 12),
+                                  _compactControls(),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: 12),
+                      _footer(wide),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ),
       ),
     );
+  }
+
+  void _stopPracticeForExit() {
+    _simulation.setRunning(false);
+    _input.clear();
+    _game.pauseEngine();
   }
 
   Widget _header(bool wide) => Row(
@@ -340,10 +410,10 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
         ),
       ),
       const SizedBox(width: 11),
-      const Column(
+      Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'APEX RC',
             style: TextStyle(
               color: Color(0xFFF1F4EF),
@@ -353,8 +423,8 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
             ),
           ),
           Text(
-            'WEB RACING PROTOTYPE',
-            style: TextStyle(
+            widget.isPractice ? 'PRACTICE · KEYBOARD' : 'WEB RACING PROTOTYPE',
+            style: const TextStyle(
               color: Color(0xFF86918A),
               fontSize: 9,
               letterSpacing: 1.1,
@@ -364,9 +434,9 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       ),
       const Spacer(),
       if (wide)
-        const Text(
-          'LOCAL · 2 PLAYERS',
-          style: TextStyle(
+        Text(
+          widget.isPractice ? 'PRACTICE · LOCAL' : 'LOCAL · 2 PLAYERS',
+          style: const TextStyle(
             color: Color(0xFF9BA89E),
             fontSize: 10,
             letterSpacing: 1,
@@ -404,28 +474,49 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     },
   );
 
-  Widget _controlPanel() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      _inputModeCard(),
-      const SizedBox(height: 12),
-      _speedCard(),
-      const SizedBox(height: 12),
-      _actionCard(),
-      const SizedBox(height: 12),
-      Expanded(child: _keyCard()),
-    ],
-  );
+  Widget _controlPanel() => widget.isPractice
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _speedCard(),
+            const SizedBox(height: 12),
+            _actionCard(),
+            const SizedBox(height: 12),
+            Expanded(child: _practiceKeysCard()),
+          ],
+        )
+      : Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _inputModeCard(),
+            const SizedBox(height: 12),
+            _speedCard(),
+            const SizedBox(height: 12),
+            _actionCard(),
+            const SizedBox(height: 12),
+            Expanded(child: _keyCard()),
+          ],
+        );
 
-  Widget _compactControls() => Column(
-    children: [
-      _inputModeCard(),
-      const SizedBox(height: 10),
-      _speedCard(),
-      const SizedBox(height: 10),
-      _actionButtons(),
-    ],
-  );
+  Widget _compactControls() => widget.isPractice
+      ? Column(
+          children: [
+            _speedCard(),
+            const SizedBox(height: 10),
+            _practiceKeysCard(compact: true),
+            const SizedBox(height: 10),
+            _actionButtons(),
+          ],
+        )
+      : Column(
+          children: [
+            _inputModeCard(),
+            const SizedBox(height: 10),
+            _speedCard(),
+            const SizedBox(height: 10),
+            _actionButtons(),
+          ],
+        );
 
   Widget _inputModeCard() => _PanelCard(
     child: Column(
@@ -591,6 +682,59 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     ),
   );
 
+  Widget _practiceKeysCard({bool compact = false}) => _PanelCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'ĐIỀU KHIỂN BÀN PHÍM',
+          style: TextStyle(
+            color: Color(0xFF9BA89E),
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.1,
+          ),
+        ),
+        SizedBox(height: compact ? 8 : 12),
+        const _PracticeKeyLine(
+          color: Color(0xFFFF696E),
+          label: 'Xe đỏ',
+          keys: 'W A S D',
+          details: 'W ga · S lùi · A/D rẽ',
+        ),
+        SizedBox(height: compact ? 7 : 12),
+        const _PracticeKeyLine(
+          color: Color(0xFF68A4FF),
+          label: 'Xe xanh',
+          keys: '← ↑ ↓ →',
+          details: 'Phím mũi tên · kiểm thử va chạm',
+        ),
+        if (!compact) ...[
+          const Spacer(),
+          const Text(
+            'ESC · tạm dừng      R · đặt lại xe',
+            style: TextStyle(
+              color: Color(0xFF86918A),
+              fontSize: 10,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ] else ...[
+          const SizedBox(height: 6),
+          const Text(
+            'ESC · tạm dừng     R · đặt lại xe',
+            style: TextStyle(
+              color: Color(0xFF86918A),
+              fontSize: 9,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+
   Widget _footer(bool wide) => Row(
     children: [
       const Icon(
@@ -746,6 +890,62 @@ class _KeyLegend extends StatelessWidget {
         ),
       ),
       Text(horn, style: const TextStyle(color: Color(0xFF849087), fontSize: 9)),
+    ],
+  );
+}
+
+class _PracticeKeyLine extends StatelessWidget {
+  const _PracticeKeyLine({
+    required this.color,
+    required this.label,
+    required this.keys,
+    required this.details,
+  });
+
+  final Color color;
+  final String label;
+  final String keys;
+  final String details;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 7),
+      SizedBox(
+        width: 58,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFFE4EAE5),
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      Text(
+        keys,
+        style: const TextStyle(
+          color: Color(0xFFB9F34A),
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
+          fontFamily: 'monospace',
+        ),
+      ),
+      const SizedBox(width: 7),
+      Expanded(
+        child: Text(
+          details,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Color(0xFF86918A), fontSize: 9),
+        ),
+      ),
     ],
   );
 }

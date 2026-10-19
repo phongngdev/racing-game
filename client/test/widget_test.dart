@@ -1,3 +1,4 @@
+import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/auth/auth_controller.dart';
@@ -6,12 +7,13 @@ import 'package:racing_client/auth/session_user.dart';
 import 'package:racing_client/chat/chat_message.dart';
 import 'package:racing_client/chat/lm_studio_service.dart';
 import 'package:racing_client/main.dart';
+import 'package:racing_client/racing/apex_racing_game.dart';
 import 'package:racing_client/racing/racing_page.dart';
 
 import 'support/fakes.dart';
 
 void main() {
-  testWidgets('User keeps the racing demo flow and five destinations', (
+  testWidgets('User can enter and leave the Practice game route', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1280, 1000);
@@ -26,35 +28,81 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Kết nối thiết bị'), findsOneWidget);
-    await _tap(tester, find.text('Mô phỏng quét mã QR'));
-    await _tap(tester, find.text('Tiếp tục'));
-    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
-
-    await _tap(tester, find.text('Sẵn sàng đua'));
-    expect(find.text('Bảng điều khiển đường đua'), findsOneWidget);
-    await _tap(tester, find.text('Mô phỏng va chạm'));
-    expect(find.text('Cảnh báo va chạm'), findsOneWidget);
-
-    await _tap(tester, find.text('Đưa xe về trạng thái an toàn'));
-    expect(find.text('Bảng điều khiển đường đua'), findsOneWidget);
-    await _tap(tester, find.byTooltip('Kết thúc phiên đua giả lập'));
-    expect(find.text('Kết quả phiên đua'), findsOneWidget);
+    expect(find.text('Chào mừng đến với Apex RC'), findsOneWidget);
+    expect(find.text('Trang chủ'), findsWidgets);
+    expect(find.text('Chơi'), findsWidgets);
+    expect(find.text('Cài đặt'), findsWidgets);
+    expect(find.text('BƯỚC'), findsNothing);
+    expect(find.text('Bản demo giao diện'), findsNothing);
     expect(find.byType(IndexedStack), findsWidgets);
 
-    await _tap(
-      tester,
-      find.widgetWithText(OutlinedButton, 'Bình chọn tái đấu'),
-    );
-    expect(find.text('Đã bình chọn tái đấu'), findsOneWidget);
-    await _tap(tester, find.text('Chơi lại'));
-    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
+    await _tap(tester, find.text('Chơi').first);
+    expect(find.text('Practice'), findsOneWidget);
+    expect(find.text('Multiplayer'), findsOneWidget);
+    expect(find.text('Sắp ra mắt'), findsOneWidget);
+    expect(find.byType(RacingPage, skipOffstage: false), findsNothing);
+    expect(find.text('Bắt đầu đua'), findsNothing);
+
+    await tester.tap(find.text('Practice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chuẩn bị Practice'), findsOneWidget);
+    expect(find.text('Bắt đầu Practice'), findsOneWidget);
+    expect(find.text('← ↑ ↓ →'), findsOneWidget);
+    expect(find.byType(RacingPage), findsNothing);
+
+    await tester.tap(find.text('Bắt đầu Practice'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(RacingPage), findsOneWidget);
+    final game = tester
+        .widget<GameWidget<ApexRacingGame>>(
+          find.byType(GameWidget<ApexRacingGame>),
+        )
+        .game!;
+    expect(game.simulation.isRunning, isFalse);
+    expect(find.text('Bắt đầu đua'), findsOneWidget);
+    await tester.tap(find.text('Bắt đầu đua'));
+    await tester.pump();
+    expect(game.simulation.isRunning, isTrue);
+
+    await tester.tap(find.byTooltip('Quay lại').last);
+    await tester.pumpAndSettle();
+    expect(game.simulation.isRunning, isFalse);
+    expect(find.text('Chuẩn bị Practice'), findsOneWidget);
+    expect(find.byType(RacingPage), findsNothing);
+
+    await tester.tap(find.byTooltip('Quay lại'));
+    await tester.pumpAndSettle();
+    expect(find.text('Practice'), findsOneWidget);
+
+    await _tap(tester, find.text('Cài đặt').first);
+    expect(find.text('racer_01'), findsOneWidget);
+    expect(find.text('racer@example.com'), findsOneWidget);
+    expect(find.text('Vai trò'), findsOneWidget);
+
+    await _tap(tester, find.text('Chơi').first);
+    await tester.tap(find.text('Practice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bắt đầu Practice'));
+    await tester.pump(const Duration(milliseconds: 400));
+    final secondGame = tester
+        .widget<GameWidget<ApexRacingGame>>(
+          find.byType(GameWidget<ApexRacingGame>),
+        )
+        .game!;
+    expect(identical(game, secondGame), isFalse);
+    expect(secondGame.simulation.isRunning, isFalse);
+    await tester.tap(find.byTooltip('Quay lại').last);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('Quay lại'));
+    await tester.pumpAndSettle();
+    expect(find.text('Practice'), findsOneWidget);
   });
 
-  testWidgets('User can open and return from the standalone web racing game', (
+  testWidgets('system back returns from the game to setup and the Play tab', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -64,17 +112,38 @@ void main() {
       MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
     );
     await tester.pumpAndSettle();
-
-    await _tap(tester, find.text('Đường đua'));
-    expect(find.text('Chơi thử Web Racing'), findsOneWidget);
-    await tester.tap(find.text('Chơi thử Web Racing'));
+    await _tap(tester, find.text('Chơi').first);
+    await tester.tap(find.text('Practice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bắt đầu Practice'));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('WEB RACING PROTOTYPE'), findsOneWidget);
-    expect(find.text('Bắt đầu đua'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('Quay lại'));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Bảng điều khiển đường đua'), findsOneWidget);
+    expect(find.byType(RacingPage), findsOneWidget);
+    final game = tester
+        .widget<GameWidget<ApexRacingGame>>(
+          find.byType(GameWidget<ApexRacingGame>),
+        )
+        .game!;
+    await tester.tap(find.text('Bắt đầu đua'));
+    await tester.pump();
+    expect(game.simulation.isRunning, isTrue);
+
+    final nestedPopScopes = tester
+        .widgetList<PopScope<void>>(find.byType(PopScope<void>))
+        .toList();
+    expect(nestedPopScopes.any((scope) => scope.canPop == false), isTrue);
+    final handled = await tester.binding.handlePopRoute();
+    expect(handled, isTrue);
+    await tester.pumpAndSettle();
+    expect(game.simulation.isRunning, isFalse);
+    expect(find.byType(RacingPage), findsNothing);
+    expect(find.text('Chuẩn bị Practice'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chuẩn bị Practice'), findsNothing);
+    expect(find.text('Practice'), findsOneWidget);
   });
 
   testWidgets('Racing page start and pause buttons toggle simulation state', (
@@ -138,7 +207,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Quản trị sản phẩm'), findsOneWidget);
-    expect(find.text('Mở racing demo'), findsOneWidget);
+    expect(find.text('Mở Apex RC'), findsOneWidget);
     expect(find.byTooltip('Sửa RC Buggy'), findsOneWidget);
     await _tap(tester, find.byTooltip('Sửa RC Buggy'));
     await tester.pumpAndSettle();
@@ -165,8 +234,8 @@ void main() {
     expect(catalog.deleteProductCalls, 1);
     expect(find.text('RC Truck'), findsNothing);
 
-    await _tap(tester, find.text('Mở racing demo'));
-    expect(find.text('Kết nối thiết bị'), findsOneWidget);
+    await _tap(tester, find.text('Mở Apex RC'));
+    expect(find.text('Chào mừng đến với Apex RC'), findsOneWidget);
     await _openAccountMenu(tester, 'admin_racer');
     await _tap(tester, find.text('Quay lại quản trị'));
     expect(find.text('Quản trị sản phẩm'), findsOneWidget);
@@ -207,7 +276,7 @@ void main() {
     );
   });
 
-  testWidgets('racing shell keeps its bottom navigation on a narrow screen', (
+  testWidgets('main shell keeps three destinations on a narrow screen', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -221,10 +290,54 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Kết nối thiết bị'), findsOneWidget);
-    expect(find.text('Đường đua'), findsOneWidget);
-    await _tap(tester, find.text('Tinh chỉnh'));
-    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    final destinations = find.byType(NavigationBar);
+    expect(
+      find.descendant(of: destinations, matching: find.text('Trang chủ')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: destinations, matching: find.text('Chơi')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: destinations, matching: find.text('Cài đặt')),
+      findsOneWidget,
+    );
+    await _tap(
+      tester,
+      find.descendant(of: destinations, matching: find.text('Chơi')),
+    );
+    expect(find.text('Practice'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Practice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chuẩn bị Practice'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('main shell switches navigation at the 920 pixel breakpoint', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(919, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = _signedInAuth(AppRole.user);
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(
+      MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('ĐIỀU HƯỚNG'), findsNothing);
+
+    tester.view.physicalSize = const Size(920, 1000);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('ĐIỀU HƯỚNG'), findsOneWidget);
   });
 
   testWidgets('desktop chat panel closes without changing the selected tab', (
@@ -245,12 +358,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await _tap(tester, find.text('Tinh chỉnh'));
+    await _tap(tester, find.text('Chơi').first);
     await _tap(tester, find.byTooltip('Mở trợ lý Apex RC'));
     expect(find.text('Trợ lý Apex RC'), findsOneWidget);
     await _tap(tester, find.byTooltip('Đóng chat'));
 
-    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
+    expect(find.text('Practice'), findsOneWidget);
     expect(find.byTooltip('Mở trợ lý Apex RC'), findsOneWidget);
   });
 
@@ -272,13 +385,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await _tap(tester, find.text('Tinh chỉnh'));
+    await _tap(
+      tester,
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Chơi'),
+      ),
+    );
     await _tap(tester, find.byTooltip('Mở chat với AI'));
     expect(find.text('Hỏi đáp bằng AI'), findsOneWidget);
     await _tap(tester, find.byTooltip('Quay lại'));
 
-    expect(find.text('Tinh chỉnh bộ điều khiển'), findsOneWidget);
-    expect(find.text('Tinh chỉnh'), findsOneWidget);
+    expect(find.text('Practice'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Chơi'),
+      ),
+      findsOneWidget,
+    );
   });
 }
 

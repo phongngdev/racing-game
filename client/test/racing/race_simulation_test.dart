@@ -74,9 +74,15 @@ void main() {
 
       input.values[PlayerId.red] = const CarInput(reverse: 1);
       _advance(simulation, input, 0.075);
-      expect(simulation.red.driveSpeed, closeTo(130, 1));
+      expect(
+        simulation.red.driveSpeed,
+        closeTo(simulation.config.maxSpeed / 2, 1),
+      );
       _advance(simulation, input, 0.075);
-      expect(simulation.red.driveSpeed, closeTo(-130, 1));
+      expect(
+        simulation.red.driveSpeed,
+        closeTo(-simulation.config.maxReverseSpeed, 1),
+      );
       expect(
         simulation.red.speed,
         lessThanOrEqualTo(simulation.config.maxReverseSpeed),
@@ -94,7 +100,10 @@ void main() {
         _advance(simulation, input, 1 / 120);
         input.values[PlayerId.red] = const CarInput(reverse: 1);
         _advance(simulation, input, 0.075);
-        expect(simulation.red.driveSpeed, closeTo(130, 1));
+        expect(
+          simulation.red.driveSpeed,
+          closeTo(simulation.config.maxSpeed / 2, 1),
+        );
 
         input.values[PlayerId.red] = const CarInput();
         _advance(simulation, input, 1 / 120);
