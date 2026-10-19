@@ -1,6 +1,6 @@
 # Apex RC Flutter client
 
-The Flutter client keeps the five-screen racing demo and adds registration, login, role-aware entry, and an isolated product/category catalog. User accounts can view catalog data. Admin accounts can create, edit with `PUT`, and delete catalog records; the API enforces these permissions.
+The main Flutter app has Trang chủ, Chơi, and Cài đặt destinations, plus registration, login, role-aware entry, and an isolated product/category catalog. The Chơi tab opens Practice with keyboard controls; it reuses the racing game without requiring the phone relay. The standalone Web Racing prototype remains available through `main_racing.dart`. User accounts can view catalog data. Admin accounts can create, edit with `PUT`, and delete catalog records; the API enforces these permissions.
 
 ## Run with the local NestJS API
 
@@ -37,8 +37,11 @@ reserving `Q` for the horn input. Player 2 (blue) uses the arrow keys with the
 same directions and reserves `M` for the horn input. Horn input is
 available to the game logic, but the prototype does not play horn audio. Keep
 the game focused while driving. Use **Bắt đầu đua**, **Tạm dừng**, **Reset xe**,
-or `Esc` to pause. The existing authenticated app also has a **Chơi thử Web
-Racing** button on its race tab.
+or `Esc` to pause. In the authenticated app, open **Chơi → Practice** to use
+WASD for the red car and the arrow keys for the blue car. Press **Bắt đầu đua**
+inside the game to start the simulation. This keyboard Practice path does not
+create a phone relay connection; the phone controller remains available in the
+standalone prototype.
 
 ### Phone Controller MVP
 
@@ -108,7 +111,7 @@ flutter run -d chrome --web-hostname localhost --web-port 5173 \
 
 The Mac running Chrome and the LM Studio host must be able to reach each other on the local network; allow inbound TCP port `1234` in the host firewall. Check that `http://192.168.101.139:1234/v1/models` is reachable from the Mac before testing chat. If the page is served over HTTPS, browsers may block its HTTP AI request; use HTTPS for the AI endpoint or a local HTTP development origin.
 
-The conversation stays in memory while navigating the five tabs and is cleared when the racing session ends. The full transcript remains visible, while each request sends the system instruction plus the latest 20 user/assistant messages.
+The conversation stays in memory while navigating the app and is cleared when the authenticated app shell ends. The full transcript remains visible, while each request sends the system instruction plus the latest 20 user/assistant messages.
 
 The chat composer can attach one JPEG or PNG per message. Images are checked, resized so the longest edge is at most 1280 pixels, and limited to 10 MiB before processing and 5 MiB after resizing. The image preview remains in the transcript. Its Base64 data is sent with that message (and when retrying it); later requests retain the text transcript without resending earlier image data. If the assistant needs to inspect an earlier image again, attach it to a new message.
 

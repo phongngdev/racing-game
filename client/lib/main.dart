@@ -11,11 +11,8 @@ import 'catalog/catalog_repository.dart';
 import 'chat/chat_controller.dart';
 import 'chat/chat_widgets.dart';
 import 'chat/lm_studio_service.dart';
-import 'pages/collision_page.dart';
-import 'pages/connect_page.dart';
-import 'pages/race_page.dart';
-import 'pages/result_page.dart';
-import 'pages/tuning_page.dart';
+import 'pages/app_pages.dart';
+import 'pages/practice_setup_page.dart';
 import 'racing/racing_page.dart';
 
 void main() => runApp(const MyApp());
@@ -64,7 +61,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     const accent = Color(0xFF3267E3);
     return MaterialApp(
-      title: 'Apex RC · Bản trình diễn',
+      title: 'Apex RC',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -141,6 +138,9 @@ class _AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<_AuthGate> {
+  GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  int? _navigatorSessionVersion;
+
   @override
   void initState() {
     super.initState();
@@ -181,38 +181,45 @@ class _AuthGateState extends State<_AuthGate> {
     ChatServiceFactory? chatServiceFactory,
   ) {
     final user = auth.user!;
-    return Navigator(
-      key: ValueKey(auth.sessionVersion),
-      onGenerateInitialRoutes: (navigator, initialRoute) => [
-        MaterialPageRoute<void>(
-          settings: RouteSettings(name: initialRoute),
-          builder: (context) => user.role == AppRole.admin
-              ? CatalogPage(
-                  repository: catalog,
-                  auth: auth,
-                  canManage: true,
-                  onReturnToRacing: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => DemoShell(
-                        auth: auth,
-                        chatServiceFactory: chatServiceFactory,
-                        onReturnToAdmin: () => Navigator.of(context).pop(),
+    if (_navigatorSessionVersion != auth.sessionVersion) {
+      _navigatorSessionVersion = auth.sessionVersion;
+      _navigatorKey = GlobalKey<NavigatorState>();
+    }
+    return NavigatorPopHandler<void>(
+      onPopWithResult: (_) => _navigatorKey.currentState?.pop(),
+      child: Navigator(
+        key: _navigatorKey,
+        onGenerateInitialRoutes: (navigator, initialRoute) => [
+          MaterialPageRoute<void>(
+            settings: RouteSettings(name: initialRoute),
+            builder: (context) => user.role == AppRole.admin
+                ? CatalogPage(
+                    repository: catalog,
+                    auth: auth,
+                    canManage: true,
+                    onReturnToRacing: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => DemoShell(
+                          auth: auth,
+                          chatServiceFactory: chatServiceFactory,
+                          onReturnToAdmin: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    ),
+                  )
+                : DemoShell(
+                    auth: auth,
+                    chatServiceFactory: chatServiceFactory,
+                    onOpenCatalog: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            CatalogPage(repository: catalog, auth: auth),
                       ),
                     ),
                   ),
-                )
-              : DemoShell(
-                  auth: auth,
-                  chatServiceFactory: chatServiceFactory,
-                  onOpenCatalog: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          CatalogPage(repository: catalog, auth: auth),
-                    ),
-                  ),
-                ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -237,6 +244,8 @@ class DemoShell extends StatefulWidget {
 
 class _DemoShellState extends State<DemoShell> {
   int _selectedIndex = 0;
+  bool _practiceSetupOpen = false;
+  bool _practiceGameOpen = false;
   late final ChatController _chatController;
 
   @override
@@ -254,33 +263,59 @@ class _DemoShellState extends State<DemoShell> {
   }
 
   static const _destinations = <_DestinationData>[
-    _DestinationData('Kết nối', Icons.link_rounded, '01'),
-    _DestinationData('Tinh chỉnh', Icons.tune_rounded, '02'),
-    _DestinationData('Đường đua', Icons.speed_rounded, '03'),
-    _DestinationData('Va chạm', Icons.warning_amber_rounded, '04'),
-    _DestinationData('Kết quả', Icons.emoji_events_outlined, '05'),
+    _DestinationData('Trang chủ', Icons.home_rounded),
+    _DestinationData('Chơi', Icons.sports_esports_rounded),
+    _DestinationData('Cài đặt', Icons.settings_rounded),
   ];
 
   void _goTo(int index) => setState(() => _selectedIndex = index);
+
+  Future<void> _openPractice() async {
+    if (_practiceSetupOpen) return;
+    _practiceSetupOpen = true;
+    final navigator = Navigator.of(context);
+    try {
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/practice/setup'),
+          builder: (_) => PracticeSetupPage(
+            onBack: () => navigator.pop(),
+            onStart: () => _openPracticeGame(navigator),
+          ),
+        ),
+      );
+    } finally {
+      _practiceSetupOpen = false;
+    }
+  }
+
+  void _openPracticeGame(NavigatorState navigator) {
+    if (_practiceGameOpen) return;
+    _practiceGameOpen = true;
+    unawaited(() async {
+      try {
+        await navigator.push<void>(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: '/practice/game'),
+            builder: (_) => RacingPage(
+              mode: RacingPageMode.practice,
+              onBack: () => navigator.pop(),
+            ),
+          ),
+        );
+      } finally {
+        _practiceGameOpen = false;
+      }
+    }());
+  }
 
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 920;
     final pages = <Widget>[
-      ConnectPage(onConnected: () => _goTo(1)),
-      TuningPage(onStartRace: () => _goTo(2)),
-      RacePage(
-        onCollision: () => _goTo(3),
-        onFinish: () => _goTo(4),
-        onPlayWebRacing: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) =>
-                RacingPage(onBack: () => Navigator.of(context).pop()),
-          ),
-        ),
-      ),
-      CollisionPage(onRecovered: () => _goTo(2)),
-      ResultPage(onRematch: () => _goTo(1)),
+      HomePage(onPlay: () => _goTo(1)),
+      PlayPage(onPractice: () => unawaited(_openPractice())),
+      SettingsPage(user: widget.auth.user!),
     ];
 
     return Scaffold(
@@ -298,7 +333,7 @@ class _DemoShellState extends State<DemoShell> {
                 children: [
                   _TopBar(
                     wide: wide,
-                    currentStep: _selectedIndex + 1,
+                    currentTitle: _destinations[_selectedIndex].label,
                     auth: widget.auth,
                     onOpenCatalog: widget.onOpenCatalog,
                     onReturnToAdmin: widget.onReturnToAdmin,
@@ -338,10 +373,9 @@ class _DemoShellState extends State<DemoShell> {
 }
 
 class _DestinationData {
-  const _DestinationData(this.label, this.icon, this.number);
+  const _DestinationData(this.label, this.icon);
   final String label;
   final IconData icon;
-  final String number;
 }
 
 class _DesktopNavigation extends StatelessWidget {
@@ -369,7 +403,7 @@ class _DesktopNavigation extends StatelessWidget {
         children: [
           const _BrandMark(),
           const SizedBox(height: 38),
-          const _Eyebrow('BẢN ĐIỀU KHIỂN'),
+          const _Eyebrow('ĐIỀU HƯỚNG'),
           const SizedBox(height: 12),
           for (var i = 0; i < destinations.length; i++)
             _NavigationItem(
@@ -378,33 +412,18 @@ class _DesktopNavigation extends StatelessWidget {
               onTap: () => onSelected(i),
             ),
           const Spacer(),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    size: 18,
-                    color: Color(0xFF3267E3),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Bản demo giao diện',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF172033),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Dữ liệu minh họa · Web',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF858D9B)),
-                  ),
-                ],
-              ),
+          const Text(
+            'Apex RC',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF667085),
             ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Ứng dụng đua xe RC',
+            style: TextStyle(fontSize: 11, color: Color(0xFF858D9B)),
           ),
         ],
       ),
@@ -450,10 +469,6 @@ class _NavigationItem extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text(
-                  item.number,
-                  style: TextStyle(fontSize: 10, color: color.withAlpha(150)),
-                ),
               ],
             ),
           ),
@@ -466,20 +481,19 @@ class _NavigationItem extends StatelessWidget {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.wide,
-    required this.currentStep,
+    required this.currentTitle,
     required this.auth,
     this.onOpenCatalog,
     this.onReturnToAdmin,
   });
   final bool wide;
-  final int currentStep;
+  final String currentTitle;
   final AuthController auth;
   final VoidCallback? onOpenCatalog;
   final VoidCallback? onReturnToAdmin;
 
   @override
   Widget build(BuildContext context) {
-    final small = MediaQuery.sizeOf(context).width < 440;
     return Container(
       height: 66,
       padding: EdgeInsets.symmetric(horizontal: wide ? 30 : 18),
@@ -490,34 +504,16 @@ class _TopBar extends StatelessWidget {
       child: Row(
         children: [
           if (!wide) const _BrandMark(compact: true),
-          if (!wide) const Spacer(),
-          Container(
-            width: 8,
-            height: 8,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Color(0xFF31B47B),
+          if (!wide) const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              currentTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontSize: wide ? 18 : 14),
             ),
           ),
-          const SizedBox(width: 8),
-          Text(
-            small ? 'Web demo' : 'Hệ thống sẵn sàng',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF667085)),
-          ),
-          if (!small) ...[
-            const SizedBox(width: 18),
-            Container(width: 1, height: 20, color: const Color(0xFFE8EBF0)),
-            const SizedBox(width: 18),
-            Text(
-              'BƯỚC $currentStep / 5',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.7,
-                color: Color(0xFF8A93A2),
-              ),
-            ),
-          ],
           const Spacer(),
           PopupMenuButton<String>(
             tooltip: 'Tài khoản ${auth.user?.username ?? ''}',

@@ -30,7 +30,7 @@ class CatalogPage extends StatelessWidget {
           TextButton.icon(
             onPressed: onReturnToRacing,
             icon: const Icon(Icons.sports_esports_outlined),
-            label: const Text('Mở racing demo'),
+            label: const Text('Mở Apex RC'),
           ),
         PopupMenuButton<String>(
           tooltip: 'Tài khoản ${auth.user?.username ?? ''}',
@@ -46,10 +46,7 @@ class CatalogPage extends StatelessWidget {
               ),
             ),
             if (onReturnToRacing != null)
-              const PopupMenuItem(
-                value: 'racing',
-                child: Text('Mở racing demo'),
-              ),
+              const PopupMenuItem(value: 'racing', child: Text('Mở Apex RC')),
             const PopupMenuItem(value: 'logout', child: Text('Đăng xuất')),
           ],
           child: Padding(
