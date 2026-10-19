@@ -21,13 +21,15 @@ flutter run -d chrome --web-hostname localhost --web-port 5173 \
 
 ## Web Racing prototype
 
-Milestone 1 can run without the API or MongoDB. Start the standalone two-player
-keyboard prototype from `client/`:
+Keyboard mode can run without the API or MongoDB. Start the standalone racing
+game from `client/`; start NestJS and MongoDB as described below to use the
+phone relay:
 
 ```bash
 flutter pub get
 flutter run -d chrome -t lib/main_racing.dart \
-  --web-hostname localhost --web-port 5174
+  --web-hostname localhost --web-port 5174 \
+  --dart-define=CONTROLLER_WS_URL=ws://127.0.0.1:3000/controller
 ```
 
 Player 1 (red) uses `W A S D` and reserves `Q` for the horn input. Player 2
@@ -37,10 +39,45 @@ the game focused while driving. Use **Bắt đầu đua**, **Tạm dừng**, **R
 or `Esc` to pause. The existing authenticated app also has a **Chơi thử Web
 Racing** button on its race tab.
 
+### Phone Controller MVP
+
+Start NestJS and MongoDB using [`../server/README.md`](../server/README.md),
+then run the game command above on the PC. Choose **Điện thoại** for the red
+car. On the Xiaomi, connect to the same Wi-Fi and run the controller entry
+point from `client/`:
+
+```bash
+flutter devices
+flutter run -d <xiaomi-device-id> -t lib/main_controller.dart \
+  --dart-define=CONTROLLER_WS_URL=ws://<computer-lan-ip>:3000/controller
+```
+
+The controller URL can also be entered in the phone UI. Use the PC's LAN IP
+there; `localhost` on Android refers to the phone. Hold the phone in landscape,
+connect, keep the phone straight, then press **Cân tâm** and hold it steady for
+half a second. Once calibrated, tilt to steer and hold **GA** or **PHANH**.
+Releasing or cancelling a touch releases the pedal. The controller pauses and
+must be calibrated again after the app returns from the background.
+
+Start and reset the race from the PC. Select **Bàn phím** to use WASD for the
+red car; arrow keys continue to control the blue car. In Phone mode, a lost
+phone input pauses the whole race after 300 ms. Reconnect the phone, release
+both pedals, and press Start on the PC to resume. Allow inbound TCP port 3000
+through the PC firewall and make sure the Wi-Fi network does not isolate
+devices. Add any different game page origin to `CONTROLLER_ALLOWED_ORIGINS` in
+`server/.env` and restart NestJS.
+
 Build the standalone Web entrypoint with:
 
 ```bash
 flutter build web -t lib/main_racing.dart
+```
+
+For Phone mode in a built Web app, pass the relay address at build time:
+
+```bash
+flutter build web -t lib/main_racing.dart \
+  --dart-define=CONTROLLER_WS_URL=ws://127.0.0.1:3000/controller
 ```
 
 ## Apex RC AI assistant

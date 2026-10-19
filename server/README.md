@@ -23,6 +23,22 @@ Password reset requires `RESET_OTP_PEPPER`, a random value of at least 32 charac
 
 For Flutter Web development, the server allows `http://localhost:5173` and `http://127.0.0.1:5173` by default. Set `CORS_ORIGINS` to a comma-separated list of exact browser origins in `.env` if the client runs elsewhere, then restart NestJS. CORS is a browser policy; API authorization is still enforced by JWT and role guards.
 
+The Web Racing prototype also uses the NestJS WebSocket relay at
+`ws://<computer-lan-ip>:3000/controller`. Nest listens on all network
+interfaces so a phone on the same LAN can reach it. Browser WebSocket origins
+are checked separately from HTTP CORS; set `CONTROLLER_ALLOWED_ORIGINS` to the
+exact game page origins if they differ from the defaults
+(`http://localhost:5174,http://127.0.0.1:5174`). Android connects without a
+browser Origin header. Keep the relay on a trusted development LAN; it has no
+account pairing or authentication in this MVP.
+
+The relay accepts one `game` client and one `phone` client. Run the game on the
+PC, then run `main_controller.dart` on the Xiaomi using the PC's LAN IP. Valid
+phone input is relayed in memory and is not stored in MongoDB. If the phone
+stops sending heartbeats, the relay drops it after four seconds; the PC game
+pauses after 300 ms without a valid input sample. A reconnect never starts the
+race automatically.
+
 ## Authentication API
 
 - `POST /auth/register` accepts `{ "username", "email", "password" }` and creates a `User` account.
