@@ -23,12 +23,10 @@ class RaceConfig {
   const RaceConfig({
     this.worldWidth = RaceTrackLayout.worldWidth,
     this.worldHeight = RaceTrackLayout.worldHeight,
-    this.maxSpeed = 260,
-    this.acceleration = 180,
-    this.braking = 360,
-    this.naturalDeceleration = 70,
+    // this.maxSpeed = 260,
+    this.maxSpeed = 200,
+    this.reverseSpeedRatio = 0.5,
     this.turnRate = 2.4,
-    this.lateralGrip = 5,
     this.vehicleRadius = 16,
     this.collisionEventThreshold = 18,
   });
@@ -36,13 +34,12 @@ class RaceConfig {
   final double worldWidth;
   final double worldHeight;
   final double maxSpeed;
-  final double acceleration;
-  final double braking;
-  final double naturalDeceleration;
+  final double reverseSpeedRatio;
   final double turnRate;
-  final double lateralGrip;
   final double vehicleRadius;
   final double collisionEventThreshold;
+
+  double get maxReverseSpeed => maxSpeed * reverseSpeedRatio;
 
   double get fixedStep => 1 / 120;
   int get maxSubSteps => 8;
@@ -54,10 +51,25 @@ class CarState {
 
   final PlayerId player;
   final Vector2 position;
+
+  /// Signed speed along the car's heading. Positive is forward, negative reverse.
+  double driveSpeed = 0;
   final Vector2 velocity;
   double heading;
 
-  double get speed => velocity.length;
+  double get speed => driveSpeed.abs();
+
+  void syncVelocity() {
+    velocity.setValues(
+      math.cos(heading) * driveSpeed,
+      math.sin(heading) * driveSpeed,
+    );
+  }
+
+  void stop() {
+    driveSpeed = 0;
+    velocity.setZero();
+  }
 }
 
 enum CollisionType { vehicle, wall }
@@ -82,6 +94,14 @@ class _CircleRectContact {
   final double penetration;
 }
 
+class _DirectionTransition {
+  _DirectionTransition({required this.startSpeed, required this.targetSpeed});
+
+  final double startSpeed;
+  double targetSpeed;
+  double elapsed = 0;
+}
+
 /// Owns all car movement and collision resolution in the fixed-step game loop.
 class RaceSimulation {
   RaceSimulation({this.config = const RaceConfig()})
@@ -95,6 +115,7 @@ class RaceSimulation {
     sync: true,
   );
   final Set<String> _activeContacts = {};
+  final Map<PlayerId, _DirectionTransition> _directionTransitions = {};
   double _accumulator = 0;
   bool isRunning = false;
 
@@ -102,18 +123,24 @@ class RaceSimulation {
 
   void setRunning(bool value) {
     isRunning = value;
-    if (!value) _accumulator = 0;
+    if (!value) {
+      _accumulator = 0;
+      red.stop();
+      blue.stop();
+      _directionTransitions.clear();
+    }
   }
 
   void reset() {
     red.position.setValues(150, 112);
-    red.velocity.setZero();
+    red.stop();
     red.heading = 0;
     blue.position.setValues(150, 166);
-    blue.velocity.setZero();
+    blue.stop();
     blue.heading = 0;
     _accumulator = 0;
     _activeContacts.clear();
+    _directionTransitions.clear();
     isRunning = false;
   }
 
@@ -145,45 +172,60 @@ class RaceSimulation {
   }
 
   void _move(CarState car, CarInput input, double dt) {
-    final forward = Vector2(math.cos(car.heading), math.sin(car.heading));
-    final lateral = Vector2(-forward.y, forward.x);
-    final forwardSpeed = car.velocity.dot(forward);
-    final lateralSpeed = car.velocity.dot(lateral);
-    final steeringSpeed = (forwardSpeed.abs() / config.maxSpeed)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final direction = forwardSpeed < -1 ? -1.0 : 1.0;
-    car.heading +=
-        input.steering.clamp(-1.0, 1.0) *
-        config.turnRate *
-        steeringSpeed *
-        direction *
-        dt;
+    final throttle = input.throttle.clamp(0.0, 1.0).toDouble();
+    final reverse = input.reverse.clamp(0.0, 1.0).toDouble();
+    final brake = input.brake.clamp(0.0, 1.0).toDouble();
+    final targetSpeed = brake > 0
+        ? 0.0
+        : reverse > 0
+        ? -config.maxReverseSpeed * reverse
+        : config.maxSpeed * throttle;
+    _updateDriveSpeed(car, targetSpeed, dt);
 
-    final throttle = input.throttle.clamp(0.0, 1.0);
-    final brake = input.brake.clamp(0.0, 1.0);
-    if (brake > 0) {
-      _applyDeceleration(car.velocity, config.braking * brake * dt);
-    } else if (throttle > 0) {
-      car.velocity.add(forward * (config.acceleration * throttle * dt));
-    } else {
-      _applyDeceleration(car.velocity, config.naturalDeceleration * dt);
+    if (car.driveSpeed.abs() > 0.01) {
+      car.heading +=
+          input.steering.clamp(-1.0, 1.0) *
+          config.turnRate *
+          car.driveSpeed.sign *
+          dt;
     }
-
-    if (lateralSpeed.abs() > 0.01) {
-      car.velocity.add(lateral * (-lateralSpeed * config.lateralGrip * dt));
-    }
-    final speed = car.velocity.length;
-    if (speed > config.maxSpeed) car.velocity.scale(config.maxSpeed / speed);
+    car.syncVelocity();
     car.position.add(car.velocity * dt);
   }
 
-  void _applyDeceleration(Vector2 velocity, double amount) {
-    final speed = velocity.length;
-    if (speed <= amount || speed == 0) {
-      velocity.setZero();
+  void _updateDriveSpeed(CarState car, double targetSpeed, double dt) {
+    if (targetSpeed == 0) {
+      _directionTransitions.remove(car.player);
+      car.driveSpeed = 0;
+      return;
+    }
+
+    final isChangingDirection =
+        car.driveSpeed != 0 && car.driveSpeed.sign != targetSpeed.sign;
+    if (!isChangingDirection) {
+      _directionTransitions.remove(car.player);
+      car.driveSpeed = targetSpeed;
+      return;
+    }
+
+    final transition = _directionTransitions.putIfAbsent(
+      car.player,
+      () => _DirectionTransition(
+        startSpeed: car.driveSpeed,
+        targetSpeed: targetSpeed,
+      ),
+    );
+    transition.targetSpeed = targetSpeed;
+    transition.elapsed = math.min(
+      _directionChangeDuration,
+      transition.elapsed + dt,
+    );
+    final progress = transition.elapsed / _directionChangeDuration;
+    if (progress >= 1) {
+      car.driveSpeed = transition.targetSpeed;
+      _directionTransitions.remove(car.player);
     } else {
-      velocity.scale((speed - amount) / speed);
+      car.driveSpeed = transition.startSpeed * (1 - progress);
     }
   }
 
@@ -199,7 +241,6 @@ class RaceSimulation {
       }
       final incomingSpeed = -car.velocity.dot(contact.normal);
       if (incomingSpeed <= 0) continue;
-      car.velocity.add(contact.normal * (incomingSpeed * 1.18));
       _emitNewContact(
         key,
         CollisionType.wall,
@@ -207,6 +248,7 @@ class RaceSimulation {
         incomingSpeed / config.maxSpeed,
         incomingSpeed,
       );
+      car.stop();
     }
   }
 
@@ -256,12 +298,10 @@ class RaceSimulation {
       blue.position.add(correction);
     }
 
-    final relativeSpeed = (blue.velocity - red.velocity).dot(normal);
-    if (relativeSpeed >= 0) return;
-    final impactSpeed = -relativeSpeed;
-    final impulse = (1.25 * impactSpeed) / 2;
-    red.velocity.sub(normal * impulse);
-    blue.velocity.add(normal * impulse);
+    final redIncomingSpeed = red.velocity.dot(normal);
+    final blueIncomingSpeed = -blue.velocity.dot(normal);
+    final impactSpeed = redIncomingSpeed + blueIncomingSpeed;
+    if (impactSpeed <= 0) return;
     _emitNewContact(
       key,
       CollisionType.vehicle,
@@ -269,6 +309,8 @@ class RaceSimulation {
       impactSpeed / (config.maxSpeed * 2),
       impactSpeed,
     );
+    if (redIncomingSpeed > 0) red.stop();
+    if (blueIncomingSpeed > 0) blue.stop();
   }
 
   void _emitNewContact(
@@ -292,4 +334,6 @@ class RaceSimulation {
   }
 
   void dispose() => _collisionEvents.close();
+
+  static const _directionChangeDuration = 0.15;
 }

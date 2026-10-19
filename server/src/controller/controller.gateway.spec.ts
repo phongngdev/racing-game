@@ -51,6 +51,7 @@ describe('ControllerGateway', () => {
       seq: 0,
       steering: -0.25,
       throttle: 1,
+      reverse: 0,
       brake: 0,
     });
     expect(messages(game).at(-1)).toEqual({
@@ -59,6 +60,7 @@ describe('ControllerGateway', () => {
         seq: 0,
         steering: -0.25,
         throttle: 1,
+        reverse: 0,
         brake: 0,
         generation,
       },
@@ -69,21 +71,35 @@ describe('ControllerGateway', () => {
       seq: 0,
       steering: 0,
       throttle: 0,
+      reverse: 0,
       brake: 0,
     });
     gateway.onInput(phone, {
       seq: 1,
       steering: 2,
       throttle: 0,
+      reverse: 0,
       brake: 0,
     });
     gateway.onInput(game, {
       seq: 1,
       steering: 0,
       throttle: 1,
+      reverse: 0,
       brake: 0,
     });
     expect(game.sent).toHaveLength(count);
+
+    gateway.onCollision(game, { generation: generation + 1 });
+    gateway.onCollision(phone, { generation });
+    expect(messages(phone)).toHaveLength(1);
+    gateway.onCollision(game, { generation });
+    expect(messages(phone).at(-1)).toEqual({
+      event: 'collision',
+      data: { generation },
+    });
+    gateway.onCollision(game, { generation });
+    expect(messages(phone)).toHaveLength(2);
 
     gateway.handleDisconnect(phone);
     expect(messages(game).at(-1)).toEqual({

@@ -19,14 +19,15 @@ void main() {
         onUnavailable: () => unavailable = true,
       );
       await tilt.start(events: stream.stream);
-      void send(double degrees) {
+      void send(double degrees, {double pitch = 0}) {
         final angle = degrees * math.pi / 180;
+        final pitchAngle = pitch * math.pi / 180;
         now += const Duration(milliseconds: 20).inMicroseconds;
         stream.add(
           AccelerometerEvent(
-            9.8 * math.cos(angle),
-            0,
+            9.8 * math.cos(angle) * math.cos(pitchAngle),
             9.8 * math.sin(angle),
+            9.8 * math.sin(pitchAngle),
             DateTime.fromMicrosecondsSinceEpoch(now),
           ),
         );
@@ -47,6 +48,11 @@ void main() {
       }
       expect(tilt.steering, greaterThan(0));
       expect(tilt.steering, lessThan(1));
+      for (var i = 0; i < 30; i++) {
+        send(0, pitch: 35);
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(tilt.steering, closeTo(0, 0.05));
       for (var i = 0; i < 30; i++) {
         send(-60);
         await Future<void>.delayed(Duration.zero);

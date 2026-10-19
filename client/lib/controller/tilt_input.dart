@@ -7,6 +7,7 @@ class TiltInput {
   TiltInput({
     required this.onSteering,
     required this.onUnavailable,
+    this.shouldAutoCenter = _neverAutoCenter,
     int Function()? clockMicros,
     this.calibrationDuration = const Duration(milliseconds: 500),
     this.sampleTimeout = const Duration(milliseconds: 200),
@@ -14,6 +15,7 @@ class TiltInput {
 
   final void Function(double steering) onSteering;
   final void Function() onUnavailable;
+  final bool Function() shouldAutoCenter;
   final int Function() _clockMicros;
   final Duration calibrationDuration;
   final Duration sampleTimeout;
@@ -66,10 +68,10 @@ class TiltInput {
   void _handleSample(AccelerometerEvent event) {
     final now = _clockMicros();
     _lastSampleAt = now;
-    // With portrait-natural Android devices locked to landscape, a roll moves
-    // gravity between the device's x axis and the screen-normal z axis. The
-    // sign is checked on the target phone during setup.
-    final angle = math.atan2(event.z, event.x);
+    // In landscapeLeft, x/y follow a steering-wheel roll: lowering the left
+    // edge is negative and lowering the right edge is positive. Android keeps
+    // sensor axes tied to the device when the screen orientation changes.
+    final angle = math.atan2(event.y, event.x);
     final calibration = _calibration;
     final startedAt = _calibrationStartedAt;
     if (calibration != null && startedAt != null) {
@@ -87,25 +89,35 @@ class TiltInput {
       }
       return;
     }
-    final center = _centerRadians;
+    var center = _centerRadians;
     if (center == null) {
       onSteering(0);
       return;
     }
 
-    final delta = _wrapRadians(angle - center);
     final previous = _lastFilterAt;
     final elapsed = previous == null
         ? 0.02
         : ((now - previous) / Duration.microsecondsPerSecond).clamp(0.0, 0.2);
     _lastFilterAt = now;
+    var delta = _wrapRadians(angle - center);
+    if (shouldAutoCenter() && delta.abs() <= _autoCenterRangeRadians) {
+      // With both pedals released, the car is stopped. Slowly absorb small
+      // baseline shifts so the steering marker returns to center on its own.
+      final adaptation = 1 - math.exp(-elapsed / _autoCenterTimeConstant);
+      center = _wrapRadians(center + delta * adaptation);
+      _centerRadians = center;
+      delta = _wrapRadians(angle - center);
+    }
+    // final alpha = 1 - math.exp(-elapsed / 0.08);
     final alpha = 1 - math.exp(-elapsed / 0.08);
     _filteredRadians += alpha * _wrapRadians(delta - _filteredRadians);
     final absoluteDegrees = _filteredRadians.abs() * 180 / math.pi;
     if (absoluteDegrees <= 3) {
       _steering = 0;
     } else {
-      final normalized = ((absoluteDegrees - 3) / 27).clamp(0.0, 1.0);
+      // final normalized = ((absoluteDegrees - 3) / 27).clamp(0.0, 1.0);
+      final normalized = ((absoluteDegrees - 3) / 18).clamp(0.0, 1.0);
       _steering = _filteredRadians.isNegative ? -normalized : normalized;
     }
     onSteering(_steering);
@@ -148,6 +160,11 @@ class TiltInput {
     }
     return value;
   }
+
+  static bool _neverAutoCenter() => false;
+
+  static const _autoCenterRangeRadians = 12 * math.pi / 180;
+  static const _autoCenterTimeConstant = 3.0;
 
   static int Function() _monotonicClock() {
     final stopwatch = Stopwatch()..start();

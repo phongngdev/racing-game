@@ -39,6 +39,12 @@ stops sending heartbeats, the relay drops it after four seconds; the PC game
 pauses after 300 ms without a valid input sample. A reconnect never starts the
 race automatically.
 
+The phone sends normalized `steering`, `throttle`, and `reverse` samples. The
+relay accepts the legacy `brake` field for older clients. The running game can
+send a `collision` event for a new impact involving the red car; the relay
+forwards it only to the phone in the matching connection generation and limits
+feedback to one event per 250 ms.
+
 ## Authentication API
 
 - `POST /auth/register` accepts `{ "username", "email", "password" }` and creates a `User` account.

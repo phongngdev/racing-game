@@ -32,6 +32,7 @@ abstract final class ControllerEvents {
   static const register = 'register';
   static const registered = 'registered';
   static const input = 'input';
+  static const collision = 'collision';
   static const status = 'status';
   static const unavailable = 'unavailable';
   static const ping = 'ping';

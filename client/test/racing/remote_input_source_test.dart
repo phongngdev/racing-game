@@ -16,6 +16,7 @@ void main() {
         steering: 0,
         throttle: 0,
         brake: 0,
+        reverse: 0,
       ),
       isTrue,
     );
@@ -27,6 +28,7 @@ void main() {
         steering: 1,
         throttle: 1,
         brake: 0,
+        reverse: 0,
       ),
       isFalse,
     );
@@ -37,6 +39,7 @@ void main() {
         steering: 0,
         throttle: 1,
         brake: 0,
+        reverse: 0,
       ),
       isFalse,
     );
@@ -47,6 +50,7 @@ void main() {
         steering: double.nan,
         throttle: 1,
         brake: 0,
+        reverse: 0,
       ),
       isFalse,
     );
@@ -58,6 +62,7 @@ void main() {
         steering: -0.5,
         throttle: 1,
         brake: 0,
+        reverse: 0,
       ),
       isTrue,
     );
@@ -78,6 +83,7 @@ void main() {
       steering: 0,
       throttle: 0,
       brake: 0,
+      reverse: 0,
     );
     expect(remote.readyToStart, isTrue);
     remote.lockUntilNeutral();
@@ -87,6 +93,7 @@ void main() {
       steering: 0.4,
       throttle: 1,
       brake: 0,
+      reverse: 0,
     );
     expect(remote.inputFor(PlayerId.red).throttle, 0);
     expect(remote.readyToStart, isFalse);
@@ -96,9 +103,42 @@ void main() {
       steering: 0.4,
       throttle: 0,
       brake: 0,
+      reverse: 0,
     );
     expect(remote.readyToStart, isTrue);
     expect(remote.inputFor(PlayerId.red).steering, 0.4);
+  });
+
+  test('keeps reverse input out of neutral readiness until it is released', () {
+    final remote = RemoteInputSource()..setConnected(true, generation: 3);
+    remote.accept(
+      sequence: 0,
+      generation: 3,
+      steering: 0,
+      throttle: 0,
+      reverse: 0,
+      brake: 0,
+    );
+    expect(remote.readyToStart, isTrue);
+    remote.accept(
+      sequence: 1,
+      generation: 3,
+      steering: 0,
+      throttle: 0,
+      reverse: 1,
+      brake: 0,
+    );
+    expect(remote.readyToStart, isFalse);
+    expect(remote.inputFor(PlayerId.red).reverse, 1);
+    remote.accept(
+      sequence: 2,
+      generation: 3,
+      steering: 0,
+      throttle: 0,
+      reverse: 0,
+      brake: 0,
+    );
+    expect(remote.readyToStart, isTrue);
   });
 
   test('keeps the blue keyboard and switches only the red car', () {

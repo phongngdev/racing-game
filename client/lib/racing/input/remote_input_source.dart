@@ -27,6 +27,7 @@ class RemoteInputSource implements InputSource {
       hasFreshInput &&
       !_requiresNeutral &&
       _latest.throttle == 0 &&
+      _latest.reverse == 0 &&
       _latest.brake == 0;
 
   void setConnected(bool value, {int? generation}) {
@@ -44,25 +45,36 @@ class RemoteInputSource implements InputSource {
     required double steering,
     required double throttle,
     required double brake,
+    double reverse = 0,
   }) {
     if (!_connected || generation != _generation || sequence <= _lastSequence) {
       return false;
     }
     if (!steering.isFinite ||
         !throttle.isFinite ||
+        !reverse.isFinite ||
         !brake.isFinite ||
         steering < -1 ||
         steering > 1 ||
         throttle < 0 ||
         throttle > 1 ||
+        reverse < 0 ||
+        reverse > 1 ||
         brake < 0 ||
         brake > 1) {
       return false;
     }
     _lastSequence = sequence;
-    _latest = CarInput(steering: steering, throttle: throttle, brake: brake);
+    _latest = CarInput(
+      steering: steering,
+      throttle: throttle,
+      reverse: reverse,
+      brake: brake,
+    );
     _receivedAt = _clockMicros();
-    if (throttle == 0 && brake == 0) _requiresNeutral = false;
+    if (throttle == 0 && reverse == 0 && brake == 0) {
+      _requiresNeutral = false;
+    }
     return true;
   }
 

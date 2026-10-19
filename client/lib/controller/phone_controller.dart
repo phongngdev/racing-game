@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import 'collision_haptics.dart';
 import 'controller_config.dart';
 import 'controller_connection.dart';
 import 'controller_protocol.dart';
 import 'tilt_input.dart';
 
 class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
+  final CollisionHaptics _collisionHaptics = CollisionHaptics();
+
   PhoneController() {
     WidgetsBinding.instance.addObserver(this);
   }
@@ -23,7 +26,9 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   bool _backgrounded = false;
   bool _shouldReconnect = false;
   bool _throttlePressed = false;
-  bool _brakePressed = false;
+  bool _reversePressed = false;
+  bool _vibrationEnabled = true;
+  int? _generation;
   bool _disposed = false;
   String message = 'Nhập địa chỉ WebSocket của PC rồi kết nối.';
 
@@ -33,8 +38,19 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   bool get isReady =>
       isConnected && isCalibrated && (_tilt?.hasFreshSample ?? false);
   bool get throttlePressed => _throttlePressed;
-  bool get brakePressed => _brakePressed;
+  bool get reversePressed => _reversePressed;
+  bool get vibrationEnabled => _vibrationEnabled;
   double get steering => _steering;
+
+  Future<VibrationResult> testVibration() =>
+      _collisionHaptics.test(foreground: !_backgrounded && !_disposed);
+
+  void setVibrationEnabled(bool enabled) {
+    if (_vibrationEnabled == enabled) return;
+    _vibrationEnabled = enabled;
+    if (!enabled) unawaited(_collisionHaptics.cancel());
+    notifyListeners();
+  }
 
   Future<void> connect(String value) async {
     final uri = ControllerConfig.parse(value);
@@ -60,7 +76,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> disconnect() async {
     _shouldReconnect = false;
     _registered = false;
-    _setPedals(throttle: false, brake: false, sendNow: false);
+    _setPedals(throttle: false, reverse: false, sendNow: false);
     message = 'Đã ngắt kết nối.';
     await _closeConnection();
     notifyListeners();
@@ -73,7 +89,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return false;
     }
-    _setPedals(throttle: false, brake: false, sendNow: false);
+    _setPedals(throttle: false, reverse: false, sendNow: false);
     message = 'Giữ điện thoại ở tư thế thẳng trong nửa giây…';
     notifyListeners();
     final calibrated = await tilt.calibrate();
@@ -88,21 +104,26 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     return calibrated;
   }
 
-  void setThrottle(bool pressed) =>
-      _setPedals(throttle: pressed, brake: _brakePressed, sendNow: true);
+  void setThrottle(bool pressed) => _setPedals(
+    throttle: pressed,
+    reverse: pressed ? false : _reversePressed,
+    sendNow: true,
+  );
 
-  void setBrake(bool pressed) =>
-      _setPedals(throttle: _throttlePressed, brake: pressed, sendNow: true);
+  void setReverse(bool pressed) => _setPedals(
+    throttle: pressed ? false : _throttlePressed,
+    reverse: pressed,
+    sendNow: true,
+  );
 
   void _setPedals({
     required bool throttle,
-    required bool brake,
+    required bool reverse,
     required bool sendNow,
   }) {
-    if (!isReady && (throttle || brake)) return;
+    if (!isReady && (throttle || reverse)) return;
     _throttlePressed = throttle;
-    _brakePressed = brake;
-    if (_brakePressed) _throttlePressed = false;
+    _reversePressed = reverse;
     if (sendNow) _sendInput();
     notifyListeners();
   }
@@ -111,10 +132,11 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
     if (_connection?.isConnected != true) {
       _registered = false;
+      unawaited(_collisionHaptics.cancel());
       _sendTimer?.cancel();
       _sendTimer = null;
       unawaited(_stopTilt());
-      _setPedals(throttle: false, brake: false, sendNow: false);
+      _setPedals(throttle: false, reverse: false, sendNow: false);
       if (_shouldReconnect) {
         message = 'Relay ngắt kết nối · đang thử kết nối lại…';
       }
@@ -127,6 +149,9 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     if (message.event == ControllerEvents.registered &&
         message.data['role'] == 'phone') {
       _registered = true;
+      _generation = message.data['generation'] is int
+          ? message.data['generation'] as int
+          : null;
       _sensorUnavailableSent = false;
       _sequence = 0;
       this.message = 'Đã nối relay · đang khởi động cảm biến…';
@@ -139,6 +164,26 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
         _shouldReconnect = false;
         unawaited(_connection?.disconnect());
       }
+    } else if (message.event == ControllerEvents.collision) {
+      final eventGeneration = message.data['generation'] is int
+          ? message.data['generation'] as int
+          : null;
+      debugPrint(
+        '[ApexRC] Received collision vibration request '
+        '(generation=$eventGeneration, current=$_generation).',
+      );
+      unawaited(
+        _collisionHaptics.playForSession(
+          foreground: isConnected && !_backgrounded && _vibrationEnabled,
+          currentGeneration: _generation,
+          eventGeneration: eventGeneration,
+          isStillCurrent: () =>
+              isConnected &&
+              !_backgrounded &&
+              _vibrationEnabled &&
+              _generation == eventGeneration,
+        ),
+      );
     }
     notifyListeners();
   }
@@ -147,6 +192,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     await _stopTilt();
     if (_disposed || !_registered) return;
     final tilt = TiltInput(
+      shouldAutoCenter: () => !_throttlePressed && !_reversePressed,
       onSteering: (value) {
         _steering = value;
         if (!_disposed) notifyListeners();
@@ -182,7 +228,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   void _markSensorUnavailable() {
     if (_disposed || _sensorUnavailableSent || !_registered) return;
     _sensorUnavailableSent = true;
-    _setPedals(throttle: false, brake: false, sendNow: false);
+    _setPedals(throttle: false, reverse: false, sendNow: false);
     _connection?.send(ControllerEvents.unavailable, {'reason': 'sensor'});
     message = 'Cảm biến chưa sẵn sàng.';
     notifyListeners();
@@ -199,8 +245,9 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     _connection?.send(ControllerEvents.input, {
       'seq': _sequence++,
       'steering': tilt.steering,
-      'throttle': _throttlePressed && !_brakePressed ? 1.0 : 0.0,
-      'brake': _brakePressed ? 1.0 : 0.0,
+      'throttle': _throttlePressed ? 1.0 : 0.0,
+      'reverse': _reversePressed ? 1.0 : 0.0,
+      'brake': 0.0,
     });
   }
 
@@ -215,6 +262,8 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _closeConnection() async {
     _registered = false;
+    _generation = null;
+    await _collisionHaptics.cancel();
     await _stopTilt();
     final connection = _connection;
     _connection = null;
@@ -228,7 +277,8 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _backgrounded = true;
-      _setPedals(throttle: false, brake: false, sendNow: true);
+      unawaited(_collisionHaptics.cancel());
+      _setPedals(throttle: false, reverse: false, sendNow: true);
       if (_registered) {
         _connection?.send(ControllerEvents.unavailable, {'reason': 'phone'});
       }
@@ -254,6 +304,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _shouldReconnect = false;
     _sendTimer?.cancel();
+    unawaited(_collisionHaptics.cancel());
     unawaited(_closeConnection());
     super.dispose();
   }
