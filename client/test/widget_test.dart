@@ -1,4 +1,5 @@
 import 'package:flame/game.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/auth/auth_controller.dart';
@@ -13,6 +14,21 @@ import 'package:racing_client/racing/racing_page.dart';
 import 'support/fakes.dart';
 
 void main() {
+  testWidgets('Android offers controller scan before sign in', (tester) async {
+    final auth = _signedInAuth(AppRole.user);
+    addTearDown(auth.dispose);
+    await _pumpMyApp(
+      tester,
+      MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
+      platform: TargetPlatform.android,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mở Apex RC'), findsOneWidget);
+    expect(find.text('Quét QR'), findsOneWidget);
+    expect(auth.status, AuthStatus.restoring);
+  });
+
   testWidgets('User can enter and leave the Practice game route', (
     tester,
   ) async {
@@ -23,7 +39,8 @@ void main() {
     final auth = _signedInAuth(AppRole.user);
     final catalog = FakeCatalogRepository();
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: catalog),
     );
     await tester.pumpAndSettle();
@@ -48,7 +65,16 @@ void main() {
     expect(find.text('Chuẩn bị Practice'), findsOneWidget);
     expect(find.text('Bắt đầu Practice'), findsOneWidget);
     expect(find.text('← ↑ ↓ →'), findsOneWidget);
+    expect(find.text('Tạo mã QR'), findsNothing);
     expect(find.byType(RacingPage), findsNothing);
+
+    await tester.tap(find.text('Điện thoại'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tạo mã QR'), findsOneWidget);
+    expect(find.textContaining('Nhập địa chỉ WebSocket LAN'), findsOneWidget);
+    await tester.tap(find.text('Bàn phím · WASD'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tạo mã QR'), findsNothing);
 
     await tester.tap(find.text('Bắt đầu Practice'));
     await tester.pump(const Duration(milliseconds: 400));
@@ -108,7 +134,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final auth = _signedInAuth(AppRole.user);
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
     );
     await tester.pumpAndSettle();
@@ -171,7 +198,8 @@ void main() {
     final auth = _signedInAuth(AppRole.user);
     final catalog = FakeCatalogRepository();
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: catalog),
     );
     await tester.pumpAndSettle();
@@ -201,7 +229,8 @@ void main() {
     final auth = _signedInAuth(AppRole.admin);
     final catalog = FakeCatalogRepository();
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: catalog),
     );
     await tester.pumpAndSettle();
@@ -251,7 +280,8 @@ void main() {
     );
     final catalog = FakeCatalogRepository();
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: catalog),
     );
     await tester.pumpAndSettle();
@@ -285,7 +315,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final auth = _signedInAuth(AppRole.user);
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
     );
     await tester.pumpAndSettle();
@@ -325,7 +356,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final auth = _signedInAuth(AppRole.user);
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(authController: auth, catalogRepository: FakeCatalogRepository()),
     );
     await tester.pumpAndSettle();
@@ -349,7 +381,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final auth = _signedInAuth(AppRole.user);
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(
         authController: auth,
         catalogRepository: FakeCatalogRepository(),
@@ -376,7 +409,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final auth = _signedInAuth(AppRole.user);
     addTearDown(auth.dispose);
-    await tester.pumpWidget(
+    await _pumpMyApp(
+      tester,
       MyApp(
         authController: auth,
         catalogRepository: FakeCatalogRepository(),
@@ -405,6 +439,20 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+Future<void> _pumpMyApp(
+  WidgetTester tester,
+  MyApp app, {
+  TargetPlatform platform = TargetPlatform.linux,
+}) async {
+  debugDefaultTargetPlatformOverride = platform;
+  try {
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+  } finally {
+    debugDefaultTargetPlatformOverride = null;
+  }
 }
 
 class _FakeChatService implements ChatService {

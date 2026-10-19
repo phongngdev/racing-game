@@ -45,6 +45,8 @@ dependencies:
   sensors_plus: ^7.1.1
   web_socket_channel: ^3.0.3
   vibration: ^3.2.1
+  mobile_scanner: ^7.4.2
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

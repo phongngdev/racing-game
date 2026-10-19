@@ -9,6 +9,7 @@ import 'apex_racing_game.dart';
 import '../controller/controller_config.dart';
 import '../controller/controller_connection.dart';
 import '../controller/controller_protocol.dart';
+import 'practice_controller_session.dart';
 import 'input/car_input.dart';
 import 'input/remote_input_source.dart';
 import 'input/selectable_input_source.dart';
@@ -28,11 +29,13 @@ class RacingPage extends StatefulWidget {
     this.onBack,
     this.mode = RacingPageMode.prototype,
     this.controllerConnectionFactory,
-  });
+    this.practiceSession,
+  }) : assert(practiceSession == null || mode == RacingPageMode.practice);
 
   final VoidCallback? onBack;
   final RacingPageMode mode;
   final RacingControllerConnectionFactory? controllerConnectionFactory;
+  final PracticeControllerSession? practiceSession;
 
   bool get isPractice => mode == RacingPageMode.practice;
 
@@ -55,7 +58,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   };
 
   final _keyboard = KeyboardInputSource();
-  final _remote = RemoteInputSource();
+  late final RemoteInputSource _remote;
   late final SelectableInputSource _input;
   final _simulation = RaceSimulation();
   final _snapshot = ValueNotifier(const RaceSnapshot());
@@ -72,6 +75,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _remote = widget.practiceSession?.remoteInput ?? RemoteInputSource();
     _input = SelectableInputSource(keyboard: _keyboard, remote: _remote);
     _game = ApexRacingGame(
       simulation: _simulation,
@@ -81,7 +85,24 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     );
     _focusNode.addListener(_handleFocusChange);
     if (widget.isPractice) {
-      _input.select(RacingInputMode.keyboard);
+      if (widget.practiceSession == null) {
+        _input.select(RacingInputMode.keyboard);
+      } else {
+        _input.select(RacingInputMode.phone);
+        widget.practiceSession!.addListener(_handlePracticeSessionChange);
+        _collisionSubscription = _simulation.collisionEvents.listen(
+          _handleCollision,
+        );
+        _remoteWatchdog = Timer.periodic(const Duration(milliseconds: 50), (_) {
+          if (_simulation.isRunning &&
+              _input.mode == RacingInputMode.phone &&
+              !_remote.hasFreshInput) {
+            _controllerError =
+                'Mất tín hiệu điện thoại · cuộc đua đã tạm dừng.';
+            _pauseRace();
+          }
+        });
+      }
     } else {
       _collisionSubscription = _simulation.collisionEvents.listen(
         _handleCollision,
@@ -125,6 +146,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     _pageFocusNode.dispose();
     _remoteWatchdog?.cancel();
     _collisionSubscription?.cancel();
+    widget.practiceSession?.removeListener(_handlePracticeSessionChange);
     _connection?.removeListener(_handleConnectionChange);
     _connection?.dispose();
     _input.clear();
@@ -164,21 +186,40 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  void _handlePracticeSessionChange() {
+    final session = widget.practiceSession;
+    if (session == null) return;
+    if (_simulation.isRunning &&
+        _input.mode == RacingInputMode.phone &&
+        (!session.isPhoneConnected || !_remote.hasFreshInput)) {
+      _controllerError = 'Tín hiệu điện thoại bị gián đoạn · cuộc đua đã dừng.';
+      _pauseRace();
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
   void _handleCollision(CollisionEvent event) {
     if (!event.players.contains(PlayerId.red) ||
         !_simulation.isRunning ||
         _input.mode != RacingInputMode.phone ||
         !_remote.hasFreshInput ||
-        _connection?.isConnected != true) {
+        (_connection?.isConnected != true &&
+            widget.practiceSession?.isPhoneConnected != true)) {
       return;
     }
     debugPrint(
       '[ApexRC] Sending collision vibration request '
       '(type=${event.type.name}, generation=${_remote.generation}).',
     );
-    _connection?.send(ControllerEvents.collision, {
-      'generation': _remote.generation,
-    });
+    final session = widget.practiceSession;
+    if (session != null) {
+      session.sendCollision();
+    } else {
+      _connection?.send(ControllerEvents.collision, {
+        'generation': _remote.generation,
+      });
+    }
   }
 
   void _handleControllerMessage(ControllerMessage message) {
@@ -239,10 +280,17 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
   }
 
   void _selectInputMode(RacingInputMode mode) {
-    if (widget.isPractice && mode != RacingInputMode.keyboard) return;
+    if (widget.isPractice &&
+        mode == RacingInputMode.phone &&
+        widget.practiceSession == null) {
+      return;
+    }
     if (mode == _input.mode) return;
     _pauseRace();
     _input.select(mode);
+    if (widget.isPractice && mode == RacingInputMode.keyboard) {
+      unawaited(widget.practiceSession?.end());
+    }
     _controllerError = '';
     if (mounted) setState(() {});
   }
@@ -385,6 +433,12 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     _simulation.setRunning(false);
     _input.clear();
     _game.pauseEngine();
+    unawaited(widget.practiceSession?.end());
+  }
+
+  void _exitPractice() {
+    if (widget.isPractice) _stopPracticeForExit();
+    widget.onBack?.call();
   }
 
   Widget _header(bool wide) => Row(
@@ -392,7 +446,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       if (widget.onBack != null) ...[
         IconButton(
           tooltip: 'Quay lại',
-          onPressed: widget.onBack,
+          onPressed: _exitPractice,
           icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFFE8ECE8)),
         ),
         const SizedBox(width: 5),
@@ -423,7 +477,11 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
             ),
           ),
           Text(
-            widget.isPractice ? 'PRACTICE · KEYBOARD' : 'WEB RACING PROTOTYPE',
+            widget.isPractice
+                ? (_input.mode == RacingInputMode.phone
+                      ? 'PRACTICE · PHONE CONTROLLER'
+                      : 'PRACTICE · KEYBOARD')
+                : 'WEB RACING PROTOTYPE',
             style: const TextStyle(
               color: Color(0xFF86918A),
               fontSize: 9,
@@ -435,7 +493,11 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       const Spacer(),
       if (wide)
         Text(
-          widget.isPractice ? 'PRACTICE · LOCAL' : 'LOCAL · 2 PLAYERS',
+          widget.isPractice
+              ? (_input.mode == RacingInputMode.phone
+                    ? 'PRACTICE · PHONE'
+                    : 'PRACTICE · LOCAL')
+              : 'LOCAL · 2 PLAYERS',
           style: const TextStyle(
             color: Color(0xFF9BA89E),
             fontSize: 10,
@@ -687,8 +749,10 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'ĐIỀU KHIỂN BÀN PHÍM',
+        Text(
+          _input.mode == RacingInputMode.phone
+              ? 'ĐIỀU KHIỂN ĐIỆN THOẠI'
+              : 'ĐIỀU KHIỂN BÀN PHÍM',
           style: TextStyle(
             color: Color(0xFF9BA89E),
             fontSize: 10,
@@ -697,12 +761,28 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
           ),
         ),
         SizedBox(height: compact ? 8 : 12),
-        const _PracticeKeyLine(
-          color: Color(0xFFFF696E),
-          label: 'Xe đỏ',
-          keys: 'W A S D',
-          details: 'W ga · S lùi · A/D rẽ',
-        ),
+        if (_input.mode == RacingInputMode.phone) ...[
+          const _PracticeKeyLine(
+            color: Color(0xFFFF696E),
+            label: 'Xe đỏ',
+            keys: 'PHONE',
+            details: 'Nghiêng để lái · giữ GA/LÙI',
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _selectInputMode(RacingInputMode.keyboard),
+              icon: const Icon(Icons.keyboard_rounded, size: 17),
+              label: const Text('Chuyển sang bàn phím'),
+            ),
+          ),
+        ] else
+          const _PracticeKeyLine(
+            color: Color(0xFFFF696E),
+            label: 'Xe đỏ',
+            keys: 'W A S D',
+            details: 'W ga · S lùi · A/D rẽ',
+          ),
         SizedBox(height: compact ? 7 : 12),
         const _PracticeKeyLine(
           color: Color(0xFF68A4FF),

@@ -38,4 +38,7 @@ abstract final class ControllerEvents {
   static const ping = 'ping';
   static const pong = 'pong';
   static const error = 'error';
+  static const controllerState = 'controller_state';
+  static const sessionEnd = 'session_end';
+  static const sessionEnded = 'session_ended';
 }
