@@ -73,19 +73,19 @@ class PairingPayload {
     if (uri == null ||
         uri.path != controllerPath ||
         uri.hasQuery ||
-        _isLoopbackOrWildcard(uri.host)) {
+        _isBlockedHost(uri.host)) {
       return null;
     }
     return uri;
   }
 
-  static bool _isLoopbackOrWildcard(String host) {
-    final normalized = host.toLowerCase();
-    return normalized == 'localhost' ||
+  static bool _isBlockedHost(String host) {
+    final normalized = host.toLowerCase().replaceAll(RegExp(r'[\[\]]'), '');
+    if (normalized == '0.0.0.0' || normalized == '::') return true;
+    final loopback =
+        normalized == 'localhost' ||
         normalized == '::1' ||
-        normalized == '0.0.0.0' ||
-        normalized == '::' ||
-        normalized == '127.0.0.1' ||
         normalized.startsWith('127.');
+    return loopback && !ControllerConfig.allowUsbRelay;
   }
 }

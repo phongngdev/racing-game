@@ -46,6 +46,16 @@ standalone prototype.
 
 ### Practice phone pairing
 
+For USB development with Android, run
+`adb -s <device-id> reverse tcp:3000 tcp:3000` and pass
+`--dart-define=ALLOW_USB_RELAY=true` to **both** the PC and Android Flutter
+commands. Set `CONTROLLER_WS_URL=ws://127.0.0.1:3000/controller` on the PC,
+then create and scan the QR normally. Keep the USB cable connected; rerun
+the reverse command if the mapping is lost. When using the phone's API and
+AI features over USB, also reverse port 1234 and set their URLs to loopback.
+Without this flag, QR pairing continues to require a LAN address. Wildcard
+addresses such as `0.0.0.0` remain invalid in either mode.
+
 Start NestJS using [`../server/README.md`](../server/README.md). On the PC,
 start the main Flutter Web app with `CONTROLLER_WS_URL` set to the relay's
 reachable LAN address. In **Chơi → Practice**, choose **Điện thoại**. If the

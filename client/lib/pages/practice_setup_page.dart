@@ -66,7 +66,9 @@ class _PracticeSetupPageState extends State<PracticeSetupPage> {
     final uri = PairingPayload.parseRelayUrl(_relayUrlController.text);
     if (uri == null) {
       setState(() {
-        _relayError = 'Nhập địa chỉ WebSocket LAN có dạng ws://192.168.1.20:3000/controller. Không dùng localhost.';
+        _relayError = ControllerConfig.allowUsbRelay
+            ? 'Nhập địa chỉ relay có dạng ws://127.0.0.1:3000/controller cho USB hoặc dùng IP LAN.'
+            : 'Nhập địa chỉ WebSocket LAN có dạng ws://192.168.1.20:3000/controller. Không dùng localhost.';
       });
       return;
     }
@@ -227,7 +229,9 @@ class _PracticeSetupPageState extends State<PracticeSetupPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Quét mã bằng ứng dụng Apex RC trên Android. PC và điện thoại cần ở cùng mạng LAN.',
+              ControllerConfig.allowUsbRelay
+                  ? 'Quét mã bằng ứng dụng Apex RC trên Android. Dùng USB đã chuyển tiếp cổng 3000 hoặc kết nối cùng mạng LAN.'
+                  : 'Quét mã bằng ứng dụng Apex RC trên Android. PC và điện thoại cần ở cùng mạng LAN.',
               style: TextStyle(color: Color(0xFF667085), height: 1.5),
             ),
             const SizedBox(height: 14),
@@ -238,9 +242,12 @@ class _PracticeSetupPageState extends State<PracticeSetupPage> {
               keyboardType: TextInputType.url,
               decoration: const InputDecoration(
                 labelText: 'WebSocket URL của relay',
-                hintText: 'ws://192.168.1.20:3000/controller',
-                helperText:
-                    'Dùng IP LAN của máy chạy NestJS, không dùng localhost.',
+                hintText: ControllerConfig.allowUsbRelay
+                    ? 'ws://127.0.0.1:3000/controller'
+                    : 'ws://192.168.1.20:3000/controller',
+                helperText: ControllerConfig.allowUsbRelay
+                    ? 'USB: dùng 127.0.0.1 và giữ dây kết nối với máy chạy NestJS.'
+                    : 'Dùng IP LAN của máy chạy NestJS, không dùng localhost.',
               ),
             ),
             if (_relayError != null) ...[

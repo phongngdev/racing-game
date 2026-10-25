@@ -1,4 +1,6 @@
 abstract final class ControllerConfig {
+  static const bool allowUsbRelay = bool.fromEnvironment('ALLOW_USB_RELAY');
+
   static const String webSocketUrl = String.fromEnvironment(
     'CONTROLLER_WS_URL',
   );

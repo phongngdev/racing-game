@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:racing_client/controller/controller_config.dart';
 import 'package:racing_client/controller/pairing_payload.dart';
 
 void main() {
@@ -22,9 +23,9 @@ void main() {
     );
   });
 
-  test('rejects malformed QR data and loopback relay addresses', () {
+  test('accepts loopback QR addresses only when USB relay is enabled', () {
     expect(PairingPayload.tryParse('not-json'), isNull);
-    for (final host in ['localhost', '127.0.0.1', '0.0.0.0']) {
+    for (final host in ['localhost', '127.0.0.1', '[::1]']) {
       final raw = jsonEncode({
         'type': PairingPayload.qrType,
         'version': PairingPayload.qrVersion,
@@ -35,7 +36,21 @@ void main() {
             .add(const Duration(minutes: 1))
             .millisecondsSinceEpoch,
       });
-      expect(PairingPayload.tryParse(raw), isNull, reason: host);
+      expect(
+        PairingPayload.tryParse(raw),
+        ControllerConfig.allowUsbRelay ? isNotNull : isNull,
+        reason: host,
+      );
+    }
+  });
+
+  test('rejects wildcard relay hosts even in USB mode', () {
+    for (final host in ['0.0.0.0', '[::]']) {
+      expect(
+        PairingPayload.parseRelayUrl('ws://$host:3000/controller'),
+        isNull,
+        reason: host,
+      );
     }
   });
 
