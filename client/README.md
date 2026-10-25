@@ -86,6 +86,67 @@ the session. A new session requires a new QR. If phone input becomes stale,
 Practice pauses and does not resume automatically. Allow inbound TCP port 3000
 through the relay host firewall and make sure Wi-Fi does not isolate devices.
 
+### Multiplayer room · Windows Web + Android
+
+Start MongoDB as described in [`../server/README.md`](../server/README.md). Open a PowerShell terminal for NestJS:
+
+```powershell
+cd server
+pnpm start:dev
+```
+
+From the repository root in a second PowerShell terminal, run the authenticated Flutter Web app with the relay's LAN address (replace the placeholder with the PC's current address):
+
+```powershell
+cd client
+flutter run -d chrome -t lib/main.dart --web-hostname localhost --web-port 5173 `
+  --dart-define=API_BASE_URL=http://127.0.0.1:3000 `
+  --dart-define=CONTROLLER_WS_URL=ws://<PC-LAN-IP>:3000/controller
+```
+
+Allow inbound TCP port `3000` in Windows Defender Firewall for the Private
+network profile. Keep the phone and PC on the same Wi-Fi and make sure the
+access point does not isolate clients. Sign in on Web, open **Chơi →
+Multiplayer**, and create the room. P1 defaults to Phone and shows a QR; P2
+defaults to Keyboard. On Android, choose **Quét QR**, scan the P1 code, keep the
+phone in landscape, calibrate it, and release GA/LÙI. Once the phone is ready,
+start the race from Web. Use `W A S D` for P1 when its source is Keyboard and
+the arrow keys for P2. Source changes are available in the lobby or while the
+Web game is paused.
+
+To connect over USB, enable ADB reverse and allow loopback QR addresses in
+both Flutter builds. Run the reverse command once, then use separate terminals
+for the Web and Android processes:
+
+```powershell
+adb -s <ANDROID-DEVICE-ID> reverse tcp:3000 tcp:3000
+```
+
+Web terminal:
+
+```powershell
+cd client
+flutter run -d chrome -t lib/main.dart --web-hostname localhost --web-port 5173 `
+  --dart-define=API_BASE_URL=http://127.0.0.1:3000 `
+  --dart-define=CONTROLLER_WS_URL=ws://127.0.0.1:3000/controller `
+  --dart-define=ALLOW_USB_RELAY=true
+```
+
+Android terminal:
+
+```powershell
+cd client
+flutter run -d <ANDROID-DEVICE-ID> `
+  --dart-define=API_BASE_URL=http://127.0.0.1:3000 `
+  --dart-define=ALLOW_USB_RELAY=true
+```
+
+Rooms and credentials live in relay memory. A phone reconnects to its own slot
+for 30 seconds after a detected disconnect; an explicit leave frees the slot
+immediately. A Web disconnect or NestJS restart closes the room, so create a
+new room and scan a new QR. The relay routes input only; Web keeps game state,
+physics, and collisions.
+
 For manual controller debugging, `main_controller.dart` still accepts a
 WebSocket URL directly and uses the original v1 relay protocol. Android debug
 builds already allow cleartext LAN WebSockets; release builds do not enable a

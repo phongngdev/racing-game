@@ -49,6 +49,17 @@ rejected by the QR client. Phone input is considered safe only while samples
 are fresh; the game pauses after 300 ms without a valid sample and never
 auto-resumes after reconnect.
 
+Multiplayer rooms use protocol v3 on the same `/controller` WebSocket. Each
+in-memory room has P1/red and P2/blue slots; a new room defaults to P1 Phone
+and P2 Keyboard. A host-owned room can switch a slot to Phone, then issues a
+single-use slot invite that expires after five minutes. A disconnected phone
+holds its slot for 30 seconds for resume with its private token; `slot_leave`
+releases it immediately. A host disconnect, explicit room close, or relay
+restart closes the room. The relay validates ownership and forwards input,
+while the Web client remains responsible for simulation and physics. Protocol
+v1 standalone relay clients and protocol v2 Practice pairings remain available
+without changes.
+
 The phone sends normalized `steering`, `throttle`, and `reverse` samples. The
 relay accepts the legacy `brake` field for older clients. The running game can
 send a `collision` event for a new impact involving the red car; the relay

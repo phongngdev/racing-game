@@ -88,7 +88,9 @@ class ControllerConnection extends ChangeNotifier {
       notifyListeners();
     } else if (message.event == ControllerEvents.pong) {
       _lastPongMs = _clock.elapsedMilliseconds;
-    } else if (message.event == ControllerEvents.sessionEnded) {
+    } else if (message.event == ControllerEvents.sessionEnded ||
+        message.event == ControllerEvents.roomClosed ||
+        message.event == ControllerEvents.slotLeft) {
       _stopRetrying();
       final channel = _channel;
       if (channel != null) unawaited(channel.sink.close());
@@ -105,6 +107,11 @@ class ControllerConnection extends ChangeNotifier {
     'resume_expired',
     'phone_already_joined',
     'session_ended',
+    'room_closed',
+    'invalid_message',
+    'slot_in_use',
+    'slot_reserved',
+    'slot_not_phone',
   }.contains(code);
 
   void _stopRetrying() {

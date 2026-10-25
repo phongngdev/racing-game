@@ -183,4 +183,117 @@ describe('ControllerGateway', () => {
       },
     });
   });
+
+  it('routes v3 input only from the phone socket currently owning its room slot', () => {
+    const gateway = new ControllerGateway();
+    const game = socket();
+    const phone = socket();
+    const otherPhone = socket();
+    gateway.onRegister(game, {
+      role: 'game',
+      version: 3,
+      action: 'create',
+    });
+    const registration = messages(game)[0]?.data;
+    expect(messages(game)[0]?.event).toBe('registered');
+    expect(registration?.invites[0]?.slotId).toBe('p1');
+
+    gateway.onRegister(phone, {
+      role: 'phone',
+      version: 3,
+      action: 'join',
+      roomId: registration?.roomId,
+      slotId: 'p1',
+      pairingToken: registration?.invites[0]?.pairingToken,
+    });
+    const phoneRegistration = messages(phone)[0]?.data;
+    expect(phoneRegistration).toMatchObject({ slotId: 'p1', player: 'red' });
+
+    gateway.onRegister(otherPhone, {
+      role: 'phone',
+      version: 3,
+      action: 'join',
+      roomId: registration?.roomId,
+      slotId: 'p1',
+      pairingToken: registration?.invites[0]?.pairingToken,
+    });
+    expect(messages(otherPhone)[0]?.data.code).toBe('slot_in_use');
+
+    const input = {
+      roomId: registration?.roomId,
+      slotId: 'p1',
+      generation: phoneRegistration?.generation,
+      seq: 0,
+      steering: 0.5,
+      throttle: 1,
+      reverse: 0,
+      brake: 0,
+    };
+    gateway.onInput(phone, input);
+    expect(messages(game).at(-1)).toEqual({ event: 'input', data: input });
+
+    const count = game.sent.length;
+    gateway.onInput(phone, { ...input, roomId: 'another-room', seq: 1 });
+    gateway.onInput(phone, { ...input, slotId: 'p2', seq: 1 });
+    gateway.onInput(otherPhone, { ...input, seq: 1 });
+    expect(game.sent).toHaveLength(count);
+
+    gateway.onSlotLeave(phone, {
+      roomId: registration?.roomId,
+      slotId: 'p1',
+      generation: phoneRegistration?.generation,
+    });
+    expect(messages(phone).at(-1)?.event).toBe('slot_left');
+    expect(messages(game).at(-1)?.event).toBe('room_state');
+    gateway.onModuleDestroy();
+  });
+
+  it('keeps separate room and slot state and requires host ownership for reconfiguration', () => {
+    const gateway = new ControllerGateway();
+    const firstGame = socket();
+    const secondGame = socket();
+    gateway.onRegister(firstGame, { role: 'game', version: 3, action: 'create' });
+    gateway.onRegister(secondGame, { role: 'game', version: 3, action: 'create' });
+    const firstRoomId = messages(firstGame)[0]?.data.roomId as string;
+    const firstRequest = 'configure-p2';
+
+    gateway.onSlotConfig(secondGame, {
+      roomId: firstRoomId,
+      slotId: 'p2',
+      source: 'phone',
+      requestId: firstRequest,
+    });
+    expect(messages(secondGame).at(-1)?.event).toBe('error');
+
+    gateway.onSlotConfig(firstGame, {
+      roomId: firstRoomId,
+      slotId: 'p2',
+      source: 'phone',
+      requestId: firstRequest,
+    });
+    expect(messages(firstGame).some((message) => message.event === 'slot_invite')).toBe(true);
+    expect(messages(firstGame).some((message) =>
+      message.event === 'slot_configured' && message.data.requestId === firstRequest,
+    )).toBe(true);
+
+    const invite = messages(firstGame).find(
+      (message) =>
+        message.event === 'slot_invite' && message.data.slotId === 'p2',
+    )?.data;
+    const p2 = socket();
+    gateway.onRegister(p2, {
+      role: 'phone',
+      version: 3,
+      action: 'join',
+      roomId: firstRoomId,
+      slotId: 'p2',
+      pairingToken: invite?.pairingToken,
+    });
+    expect(messages(p2)[0]?.data).toMatchObject({
+      roomId: firstRoomId,
+      slotId: 'p2',
+      player: 'blue',
+    });
+    gateway.onModuleDestroy();
+  });
 });

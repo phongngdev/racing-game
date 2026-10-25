@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'pairing_payload.dart';
+import 'room_pairing_payload.dart';
 
 class QrScannerPage extends StatefulWidget {
   const QrScannerPage({super.key});
@@ -87,12 +87,18 @@ class _QrScannerPageState extends State<QrScannerPage>
       }
     }
     if (raw == null) return;
-    final payload = PairingPayload.tryParse(raw);
+    final payload = ScannedControllerPayload.tryParse(raw);
     if (payload == null) {
-      setState(() => _error = 'Mã QR không phải mã ghép nối Apex RC hợp lệ.');
+      setState(
+        () => _error = 'Mã QR không phải mã phòng hoặc tay cầm Apex RC.',
+      );
       return;
     }
-    if (payload.isExpired) {
+    final expiresAt = switch (payload) {
+      PracticeControllerPayload(:final payload) => payload.expiresAt,
+      RoomControllerPayload(:final payload) => payload.expiresAt,
+    };
+    if (!DateTime.now().isBefore(expiresAt)) {
       setState(() => _error = 'Mã QR đã hết hạn. Hãy tạo mã mới trên PC.');
       return;
     }
@@ -118,7 +124,7 @@ class _QrScannerPageState extends State<QrScannerPage>
       appBar: AppBar(
         backgroundColor: const Color(0xFF111916),
         foregroundColor: Colors.white,
-        title: const Text('Quét mã Practice'),
+        title: const Text('Quét mã Apex RC'),
         actions: [
           IconButton(
             tooltip: 'Thử mở camera lại',

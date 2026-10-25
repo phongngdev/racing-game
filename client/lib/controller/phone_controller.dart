@@ -7,6 +7,7 @@ import 'controller_config.dart';
 import 'controller_connection.dart';
 import 'controller_protocol.dart';
 import 'pairing_payload.dart';
+import 'room_pairing_payload.dart';
 import 'tilt_input.dart';
 
 class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
@@ -31,6 +32,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   bool _vibrationEnabled = true;
   int? _generation;
   PairingPayload? _pairingPayload;
+  RoomPairingPayload? _roomPairingPayload;
   String? _resumeToken;
   bool _readyStageSent = false;
   bool _disposed = false;
@@ -45,7 +47,10 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   bool get reversePressed => _reversePressed;
   bool get vibrationEnabled => _vibrationEnabled;
   double get steering => _steering;
-  bool get isPairing => _pairingPayload != null;
+  bool get isPairing => _pairingPayload != null || _roomPairingPayload != null;
+  String? get pairingLabel => _roomPairingPayload == null
+      ? null
+      : '${_roomPairingPayload!.slotId.toUpperCase()} · ${_roomPairingPayload!.slotId == 'p1' ? 'XE ĐỎ' : 'XE XANH'}';
 
   Future<VibrationResult> testVibration() =>
       _collisionHaptics.test(foreground: !_backgrounded && !_disposed);
@@ -66,6 +71,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _closeConnection();
     _pairingPayload = null;
+    _roomPairingPayload = null;
     _resumeToken = null;
     _uriText = uri.toString();
     _shouldReconnect = true;
@@ -88,6 +94,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _closeConnection();
     _pairingPayload = payload;
+    _roomPairingPayload = null;
     _resumeToken = null;
     _uriText = payload.relayUrl.toString();
     _shouldReconnect = true;
@@ -105,6 +112,11 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> resumePairing() async {
+    final roomPayload = _roomPairingPayload;
+    if (roomPayload != null) {
+      await resumeRoomPairing();
+      return;
+    }
     final payload = _pairingPayload;
     if (payload == null || _resumeToken == null) {
       message = 'Quét mã QR mới để ghép nối lại.';
@@ -127,6 +139,70 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> connectRoomPairing(RoomPairingPayload payload) async {
+    if (payload.isExpired) {
+      message = 'Mã QR đã hết hạn. Hãy tạo mã mới trên Web.';
+      notifyListeners();
+      return;
+    }
+    await _closeConnection();
+    _pairingPayload = null;
+    _roomPairingPayload = payload;
+    _resumeToken = null;
+    _uriText = payload.relayUrl.toString();
+    _shouldReconnect = true;
+    _sequence = 0;
+    _readyStageSent = false;
+    message = 'Đang vào ${payload.slotId.toUpperCase()}…';
+    _connection = ControllerConnection(
+      uri: payload.relayUrl,
+      role: ControllerRole.phone,
+      registrationData: _roomPairingRegistrationData(),
+      onEvent: _handleMessage,
+    )..addListener(_handleConnectionChange);
+    _connection!.connect();
+    notifyListeners();
+  }
+
+  Future<void> resumeRoomPairing() async {
+    final payload = _roomPairingPayload;
+    if (payload == null || _resumeToken == null) {
+      message = 'Quét lại QR hoặc yêu cầu Web tạo QR mới.';
+      notifyListeners();
+      return;
+    }
+    await _closeConnection();
+    _uriText = payload.relayUrl.toString();
+    _shouldReconnect = true;
+    _sequence = 0;
+    _readyStageSent = false;
+    message = 'Đang khôi phục ${payload.slotId.toUpperCase()}…';
+    _connection = ControllerConnection(
+      uri: payload.relayUrl,
+      role: ControllerRole.phone,
+      registrationData: _roomPairingRegistrationData(),
+      onEvent: _handleMessage,
+    )..addListener(_handleConnectionChange);
+    _connection!.connect();
+    notifyListeners();
+  }
+
+  Map<String, Object?> _roomPairingRegistrationData() {
+    final payload = _roomPairingPayload!;
+    final resumeToken = _resumeToken;
+    return {
+      'role': 'phone',
+      'version': 3,
+      'action': resumeToken == null ? 'join' : 'resume',
+      'roomId': payload.roomId,
+      'slotId': payload.slotId,
+      if (resumeToken == null)
+        'pairingToken': payload.pairingToken
+      else
+        'resumeToken': resumeToken,
+    };
+  }
+
   Map<String, Object?> _pairingRegistrationData() {
     final payload = _pairingPayload!;
     final resumeToken = _resumeToken;
@@ -146,6 +222,17 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> disconnect() async {
+    final roomPayload = _roomPairingPayload;
+    final generation = _generation;
+    if (roomPayload != null && generation != null && isConnected) {
+      _connection?.send(ControllerEvents.slotLeave, {
+        'roomId': roomPayload.roomId,
+        'slotId': roomPayload.slotId,
+        'generation': generation,
+      });
+      _roomPairingPayload = null;
+      _resumeToken = null;
+    }
     _shouldReconnect = false;
     _registered = false;
     _setPedals(throttle: false, reverse: false, sendNow: false);
@@ -163,17 +250,17 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     }
     _setPedals(throttle: false, reverse: false, sendNow: false);
     _readyStageSent = false;
-    if (_pairingPayload != null) _sendControllerState('calibrating');
+    if (isPairing) _sendControllerState('calibrating');
     message = 'Giữ điện thoại ở tư thế thẳng trong nửa giây…';
     notifyListeners();
     final calibrated = await tilt.calibrate();
     if (_disposed) return false;
     if (calibrated) {
       _sensorUnavailableSent = false;
-      if (_pairingPayload != null) _sendControllerState('checking');
+      if (isPairing) _sendControllerState('checking');
       message = 'Đã cân tâm. Nghiêng để lái và giữ nút để tăng tốc.';
     } else {
-      if (_pairingPayload != null) _sendControllerState('lost');
+      if (isPairing) _sendControllerState('lost');
       message = 'Không cân tâm được. Kiểm tra cảm biến rồi thử lại.';
     }
     notifyListeners();
@@ -235,6 +322,20 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
         }
         _resumeToken = message.data['resumeToken'] as String;
         _connection?.registrationData = _pairingRegistrationData();
+      } else if (_roomPairingPayload != null) {
+        final payload = _roomPairingPayload!;
+        if (message.data['roomId'] != payload.roomId ||
+            message.data['slotId'] != payload.slotId ||
+            message.data['resumeToken'] is! String ||
+            message.data['generation'] is! int) {
+          _shouldReconnect = false;
+          this.message = 'Relay không xác nhận đúng slot Multiplayer.';
+          unawaited(_connection?.disconnect());
+          notifyListeners();
+          return;
+        }
+        _resumeToken = message.data['resumeToken'] as String;
+        _connection?.registrationData = _roomPairingRegistrationData();
       }
       _registered = true;
       _generation = message.data['generation'] is int
@@ -253,7 +354,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
         _shouldReconnect = false;
         unawaited(_connection?.disconnect());
       }
-      if (_pairingPayload != null) {
+      if (isPairing) {
         if (message.data['code'] == 'resume_pending') {
           this.message = 'Đang chờ relay đóng kết nối cũ rồi thử lại…';
         } else if (message.data['code'] == 'pairing_expired') {
@@ -264,20 +365,33 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
           this.message = 'Mã này đã được một điện thoại khác sử dụng.';
         } else if (message.data['code'] == 'resume_expired') {
           _shouldReconnect = false;
-          this.message = 'Không thể khôi phục phiên. Hãy quét mã mới trên PC.';
+          this.message = _roomPairingPayload != null
+              ? 'Slot đã hết thời gian giữ chỗ. Hãy quét QR mới.'
+              : 'Không thể khôi phục phiên. Hãy quét mã mới trên PC.';
+        } else if (message.data['code'] == 'slot_in_use' ||
+            message.data['code'] == 'slot_reserved') {
+          _shouldReconnect = false;
+          this.message = 'Player slot này đang được điện thoại khác sử dụng.';
+        } else if (message.data['code'] == 'slot_not_phone') {
+          _shouldReconnect = false;
+          this.message = 'Slot này hiện được cấu hình cho bàn phím.';
         } else {
           _shouldReconnect = false;
           this.message = 'Phiên Practice không còn hoạt động.';
         }
         if (!_shouldReconnect) unawaited(_connection?.disconnect());
       }
-    } else if (message.event == ControllerEvents.sessionEnded) {
+    } else if (message.event == ControllerEvents.sessionEnded ||
+        message.event == ControllerEvents.roomClosed ||
+        message.event == ControllerEvents.slotLeft) {
       _shouldReconnect = false;
       _registered = false;
       _setPedals(throttle: false, reverse: false, sendNow: false);
       _sendTimer?.cancel();
       unawaited(_stopTilt());
-      this.message = 'Phiên Practice đã kết thúc.';
+      this.message = _roomPairingPayload != null
+          ? 'Kết nối slot đã kết thúc.'
+          : 'Phiên Practice đã kết thúc.';
     } else if (message.event == ControllerEvents.collision) {
       final eventGeneration = message.data['generation'] is int
           ? message.data['generation'] as int
@@ -322,7 +436,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     _sendTimer?.cancel();
-    if (_pairingPayload != null) {
+    if (isPairing) {
       _sendControllerState('checking');
     }
     _sendTimer = Timer.periodic(const Duration(milliseconds: 33), (_) {
@@ -333,14 +447,14 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
           _markSensorUnavailable();
         }
       } else {
-        if (_pairingPayload != null && _sensorUnavailableSent) {
+        if (isPairing && _sensorUnavailableSent) {
           _sendControllerState('checking');
           message = 'Cảm biến sẵn sàng · cân tâm trước khi lái.';
         }
         _sensorUnavailableSent = false;
         if (tilt.isCalibrated) {
           _sendInput();
-          if (_pairingPayload != null && !_readyStageSent) {
+          if (isPairing && !_readyStageSent) {
             _readyStageSent = true;
             _sendControllerState('ready');
           }
@@ -356,11 +470,19 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed || _sensorUnavailableSent || !_registered) return;
     _sensorUnavailableSent = true;
     _setPedals(throttle: false, reverse: false, sendNow: false);
-    if (_pairingPayload != null) {
+    if (isPairing) {
       _readyStageSent = false;
       _sendControllerState('lost');
     }
-    _connection?.send(ControllerEvents.unavailable, {'reason': 'sensor'});
+    final room = _roomPairingPayload;
+    _connection?.send(ControllerEvents.unavailable, {
+      'reason': 'sensor',
+      if (room != null) ...{
+        'roomId': room.roomId,
+        'slotId': room.slotId,
+        'generation': _generation,
+      },
+    });
     message = 'Cảm biến chưa sẵn sàng.';
     notifyListeners();
   }
@@ -373,18 +495,32 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
         !tilt.hasFreshSample) {
       return;
     }
+    final room = _roomPairingPayload;
     _connection?.send(ControllerEvents.input, {
       'seq': _sequence++,
       'steering': tilt.steering,
       'throttle': _throttlePressed ? 1.0 : 0.0,
       'reverse': _reversePressed ? 1.0 : 0.0,
       'brake': 0.0,
+      if (room != null) ...{
+        'roomId': room.roomId,
+        'slotId': room.slotId,
+        'generation': _generation,
+      },
     });
   }
 
   void _sendControllerState(String stage) {
-    if (_pairingPayload == null || !isConnected) return;
-    _connection?.send(ControllerEvents.controllerState, {'stage': stage});
+    if (!isPairing || !isConnected) return;
+    final room = _roomPairingPayload;
+    _connection?.send(ControllerEvents.controllerState, {
+      'stage': stage,
+      if (room != null) ...{
+        'roomId': room.roomId,
+        'slotId': room.slotId,
+        'generation': _generation,
+      },
+    });
   }
 
   Future<void> _stopTilt() async {
@@ -412,15 +548,23 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
-        (_pairingPayload != null &&
+        (isPairing &&
             (state == AppLifecycleState.inactive ||
                 state == AppLifecycleState.hidden))) {
       _backgrounded = true;
       unawaited(_collisionHaptics.cancel());
       _setPedals(throttle: false, reverse: false, sendNow: true);
       if (_registered) {
-        if (_pairingPayload != null) _sendControllerState('lost');
-        _connection?.send(ControllerEvents.unavailable, {'reason': 'phone'});
+        if (isPairing) _sendControllerState('lost');
+        final room = _roomPairingPayload;
+        _connection?.send(ControllerEvents.unavailable, {
+          'reason': 'phone',
+          if (room != null) ...{
+            'roomId': room.roomId,
+            'slotId': room.slotId,
+            'generation': _generation,
+          },
+        });
       }
       _registered = false;
       _sendTimer?.cancel();
@@ -440,6 +584,14 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    final room = _roomPairingPayload;
+    if (room != null && _generation != null && isConnected) {
+      _connection?.send(ControllerEvents.slotLeave, {
+        'roomId': room.roomId,
+        'slotId': room.slotId,
+        'generation': _generation,
+      });
+    }
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _shouldReconnect = false;

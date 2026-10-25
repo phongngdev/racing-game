@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/controller/controller_config.dart';
 import 'package:racing_client/controller/pairing_payload.dart';
+import 'package:racing_client/controller/room_pairing_payload.dart';
 
 void main() {
   test('round trips a LAN relay URL and temporary pairing credential', () {
@@ -75,5 +76,33 @@ void main() {
       });
       expect(PairingPayload.tryParse(raw), isNull);
     }
+  });
+
+  test('round trips a room QR for the selected player slot', () {
+    final payload = RoomPairingPayload(
+      relayUrl: Uri.parse('ws://192.168.1.20:3000/controller'),
+      roomId: 'room-01',
+      slotId: 'p2',
+      pairingToken: List.filled(32, 'A').join(),
+      expiresAt: DateTime.utc(2026, 10, 25, 12),
+    );
+    final parsed = RoomPairingPayload.tryParse(payload.toQrValue());
+    expect(parsed?.roomId, payload.roomId);
+    expect(parsed?.slotId, 'p2');
+    expect(parsed?.relayUrl, payload.relayUrl);
+    expect(parsed?.pairingToken, payload.pairingToken);
+
+    final scan = ScannedControllerPayload.tryParse(payload.toQrValue());
+    expect(scan, isA<RoomControllerPayload>());
+    final practice = PairingPayload(
+      relayUrl: payload.relayUrl,
+      sessionId: 'practice-01',
+      pairingToken: payload.pairingToken,
+      expiresAt: payload.expiresAt,
+    );
+    expect(
+      ScannedControllerPayload.tryParse(practice.toQrValue()),
+      isA<PracticeControllerPayload>(),
+    );
   });
 }

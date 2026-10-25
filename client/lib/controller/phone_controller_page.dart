@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'collision_haptics.dart';
 import 'controller_config.dart';
 import 'pairing_payload.dart';
+import 'room_pairing_payload.dart';
 import 'phone_controller.dart';
 import 'qr_scanner_page.dart';
 
@@ -14,11 +15,13 @@ class PhoneControllerPage extends StatefulWidget {
     super.key,
     this.enableQrPairing = false,
     this.initialPairingPayload,
+    this.initialRoomPairingPayload,
     this.onExit,
   });
 
   final bool enableQrPairing;
   final PairingPayload? initialPairingPayload;
+  final RoomPairingPayload? initialRoomPairingPayload;
   final VoidCallback? onExit;
 
   @override
@@ -38,6 +41,11 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
     if (pairing != null) {
       _urlController.text = pairing.relayUrl.toString();
       unawaited(_controller.connectPairing(pairing));
+    }
+    final roomPairing = widget.initialRoomPairingPayload;
+    if (roomPairing != null) {
+      _urlController.text = roomPairing.relayUrl.toString();
+      unawaited(_controller.connectRoomPairing(roomPairing));
     }
   }
 
@@ -62,12 +70,19 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
   }
 
   Future<void> _scanQr() async {
-    final payload = await Navigator.of(context).push<PairingPayload>(
-      MaterialPageRoute<PairingPayload>(builder: (_) => const QrScannerPage()),
+    final payload = await Navigator.of(context).push<ScannedControllerPayload>(
+      MaterialPageRoute<ScannedControllerPayload>(
+        builder: (_) => const QrScannerPage(),
+      ),
     );
     if (!mounted || payload == null) return;
     _urlController.text = payload.relayUrl.toString();
-    await _controller.connectPairing(payload);
+    switch (payload) {
+      case PracticeControllerPayload(:final payload):
+        await _controller.connectPairing(payload);
+      case RoomControllerPayload(:final payload):
+        await _controller.connectRoomPairing(payload);
+    }
   }
 
   @override
@@ -209,6 +224,18 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                       ],
                     ),
                     SizedBox(height: compact ? 6 : 12),
+                    if (_controller.pairingLabel case final label?)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          'ĐANG ĐIỀU KHIỂN $label',
+                          style: const TextStyle(
+                            color: Color(0xFFB9F34A),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
                     Row(
                       children: [
                         Expanded(
