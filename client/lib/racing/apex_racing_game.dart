@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult;
 
 import 'input/car_input.dart';
+import 'lap/lap_race_track.dart';
 import 'simulation/race_simulation.dart';
 
 class RaceSnapshot {
@@ -23,6 +24,8 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     required this.inputSource,
     required this.snapshot,
     required this.onKeyboardEvent,
+    this.lapTrack,
+    this.onFrameUpdate,
   }) : super(
          camera: CameraComponent.withFixedResolution(
            width: RaceTrackLayout.worldWidth,
@@ -34,9 +37,17 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
       RaceTrackLayout.worldHeight / 2,
     );
     world.addAll([
-      TrackComponent(),
-      CarComponent(state: simulation.red, color: const Color(0xFFE34B50)),
-      CarComponent(state: simulation.blue, color: const Color(0xFF4388F5)),
+      TrackComponent(lapTrack: lapTrack),
+      CarComponent(
+        state: simulation.red,
+        color: const Color(0xFFE34B50),
+        isFinished: () => simulation.isPlayerFinished(PlayerId.red),
+      ),
+      CarComponent(
+        state: simulation.blue,
+        color: const Color(0xFF4388F5),
+        isFinished: () => simulation.isPlayerFinished(PlayerId.blue),
+      ),
     ]);
   }
 
@@ -44,6 +55,8 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   final InputSource inputSource;
   final ValueNotifier<RaceSnapshot> snapshot;
   final KeyEventResult Function(KeyEvent event) onKeyboardEvent;
+  final LapRaceTrack? lapTrack;
+  final void Function(double frameSeconds)? onFrameUpdate;
   double _snapshotElapsed = 0;
 
   @override
@@ -58,7 +71,12 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   @override
   void update(double dt) {
     super.update(dt);
-    simulation.update(dt, inputSource);
+    final frameUpdate = onFrameUpdate;
+    if (frameUpdate == null) {
+      simulation.update(dt, inputSource);
+    } else {
+      frameUpdate(dt);
+    }
     _snapshotElapsed += dt;
     if (_snapshotElapsed >= 0.1) {
       _snapshotElapsed %= 0.1;
@@ -71,6 +89,10 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
 }
 
 class TrackComponent extends Component {
+  TrackComponent({this.lapTrack});
+
+  final LapRaceTrack? lapTrack;
+
   @override
   void render(Canvas canvas) {
     final grass = Paint()..color = const Color(0xFF24452F);
@@ -156,15 +178,31 @@ class TrackComponent extends Component {
       canvas.drawRect(Rect.fromLTWH(785, y, 3, 20), lane);
     }
 
-    // Pixel checker start line, placed across the upper straight.
-    const startX = 126.0;
-    for (var row = 0; row < 18; row++) {
-      for (var column = 0; column < 2; column++) {
-        final paint = (row + column).isEven ? kerbWhite : wallShadow;
-        canvas.drawRect(
-          Rect.fromLTWH(startX + column * 8, 70 + row * 8, 8, 8),
-          paint,
-        );
+    final finish = lapTrack?.finish;
+    if (finish == null) {
+      // Preserve the Practice mode's original decorative line.
+      const startX = 126.0;
+      for (var row = 0; row < 18; row++) {
+        for (var column = 0; column < 2; column++) {
+          final paint = (row + column).isEven ? kerbWhite : wallShadow;
+          canvas.drawRect(
+            Rect.fromLTWH(startX + column * 8, 70 + row * 8, 8, 8),
+            paint,
+          );
+        }
+      }
+    } else {
+      final top = finish.start.y;
+      final bottom = finish.end.y;
+      var row = 0;
+      for (var y = top; y < bottom; y += 8, row++) {
+        for (var column = 0; column < 2; column++) {
+          final paint = (row + column).isEven ? kerbWhite : wallShadow;
+          canvas.drawRect(
+            Rect.fromLTWH(finish.start.x - 8 + column * 8, y, 8, 8),
+            paint,
+          );
+        }
       }
     }
 
@@ -187,10 +225,17 @@ class TrackComponent extends Component {
 }
 
 class CarComponent extends Component {
-  CarComponent({required this.state, required this.color});
+  CarComponent({
+    required this.state,
+    required this.color,
+    this.isFinished = _neverFinished,
+  });
 
   final CarState state;
   final Color color;
+  final bool Function() isFinished;
+
+  static bool _neverFinished() => false;
 
   @override
   void render(Canvas canvas) {
@@ -210,7 +255,7 @@ class CarComponent extends Component {
 
     canvas.drawRect(
       const Rect.fromLTWH(-19, -12, 38, 24),
-      Paint()..color = color,
+      Paint()..color = isFinished() ? color.withAlpha(112) : color,
     );
     canvas.drawRect(
       const Rect.fromLTWH(-18, -10, 3, 20),
