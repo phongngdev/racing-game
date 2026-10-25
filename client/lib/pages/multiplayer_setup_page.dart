@@ -41,7 +41,12 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
   }
 
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final shownSlot = _shownQrSlot;
+    if (shownSlot != null && _session?.slot(shownSlot)?.connected == true) {
+      _shownQrSlot = null;
+    }
+    setState(() {});
   }
 
   void _createRoom() {
@@ -230,15 +235,35 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
                           _starting ? 'Đang mở game…' : 'Vào đường đua',
                         ),
                       ),
-                      if (!session.canStart)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text(
-                            'Kết nối relay và sẵn sàng các slot Phone trước khi bắt đầu.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Color(0xFF667085)),
-                          ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: session.canStart
+                              ? const Color(0xFFEAF7EE)
+                              : const Color(0xFFFFF7E8),
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              session.canStart
+                                  ? Icons.check_circle_outline_rounded
+                                  : Icons.info_outline_rounded,
+                              color: session.canStart
+                                  ? const Color(0xFF16803C)
+                                  : const Color(0xFF9A6700),
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Text(
+                                _startGuidance(session),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -255,14 +280,7 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
     final isRed = slotId == 'p1';
     final color = isRed ? const Color(0xFFE34B50) : const Color(0xFF4388F5);
     final source = slot?.source ?? (isRed ? 'phone' : 'keyboard');
-    final status = switch (slot) {
-      null => 'Đang lấy trạng thái…',
-      MultiplayerSlotStatus(:final connected, :final stage) when connected =>
-        'Connected · $stage',
-      MultiplayerSlotStatus(reserved: true) => 'Disconnected · giữ chỗ 30 giây',
-      _ when source == 'keyboard' => 'Keyboard · sẵn sàng trên Web',
-      _ => 'Disconnected · chờ điện thoại',
-    };
+    final status = _slotStatus(session, slotId, slot, source);
     final invite = session.inviteFor(slotId);
     return Card(
       child: Padding(
@@ -280,13 +298,20 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
-                Text(
-                  status,
-                  style: TextStyle(
-                    color: slot?.connected == true
-                        ? const Color(0xFF16803C)
-                        : const Color(0xFF667085),
-                    fontSize: 12,
+                Flexible(
+                  child: Text(
+                    status,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: TextStyle(
+                      color: session.isSlotReadyToStart(slotId)
+                          ? const Color(0xFF16803C)
+                          : slot?.connected == true
+                          ? const Color(0xFF9A6700)
+                          : const Color(0xFF667085),
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -351,7 +376,11 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
         margin: const EdgeInsets.only(top: 14),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Text('QR $slotId chưa sẵn sàng. Hãy tạo QR mới cho slot này.'),
+          child: Center(
+            child: Text(
+              'QR $slotId chưa sẵn sàng. Hãy tạo QR mới cho slot này.',
+            ),
+          ),
         ),
       );
     }
@@ -359,28 +388,75 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
       margin: const EdgeInsets.only(top: 14),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
           children: [
-            QrImageView(data: invite.toQrValue(), size: 190),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Quét bằng Android · ${slotId.toUpperCase()}'),
-                  const SizedBox(height: 6),
-                  Text('QR hết hạn lúc ${invite.expiresAt.toLocal()}'),
-                  Text('Relay: ${invite.relayUrl}'),
-                  TextButton(
-                    onPressed: () => setState(() => _shownQrSlot = null),
-                    child: const Text('Ẩn QR'),
-                  ),
-                ],
-              ),
+            Text(
+              'Quét bằng Android · ${slotId.toUpperCase()}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            Center(child: QrImageView(data: invite.toQrValue(), size: 250)),
+            const SizedBox(height: 8),
+            Text('QR hết hạn lúc ${invite.expiresAt.toLocal()}'),
+            Text('Relay: ${invite.relayUrl}', textAlign: TextAlign.center),
+            TextButton(
+              onPressed: () => setState(() => _shownQrSlot = null),
+              child: const Text('Ẩn QR'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  String _slotStatus(
+    MultiplayerRoomSession session,
+    String slotId,
+    MultiplayerSlotStatus? slot,
+    String source,
+  ) {
+    if (slot == null) return 'Đang lấy trạng thái…';
+    if (source == 'keyboard') return 'Keyboard · sẵn sàng trên Web';
+    if (!slot.connected) {
+      return slot.reserved
+          ? 'Disconnected · giữ slot 30 giây'
+          : 'Disconnected · chờ điện thoại';
+    }
+    return switch (slot.stage) {
+      'checking' => 'Phone connected · cần cân tâm',
+      'calibrating' => 'Phone connected · đang cân tâm',
+      'lost' => 'Phone connected · cảm biến chưa sẵn sàng',
+      'ready' when session.isSlotReadyToStart(slotId) => 'Phone · sẵn sàng',
+      'ready' => 'Đã cân tâm · nhả GA/LÙI',
+      _ => 'Phone connected · đang kiểm tra',
+    };
+  }
+
+  String _startGuidance(MultiplayerRoomSession session) {
+    if (!session.isConnected) return 'Đang kết nối với relay…';
+    if (session.slots.length < 2) {
+      return 'Đang nhận trạng thái hai player slot…';
+    }
+    for (final slot in session.slots.values) {
+      if (session.isSlotReadyToStart(slot.id)) continue;
+      final player = slot.id.toUpperCase();
+      if (slot.source == 'keyboard') continue;
+      if (!slot.connected) {
+        return slot.reserved
+            ? '$player vừa mất kết nối. Kết nối lại trong 30 giây hoặc tạo QR mới sau khi hết hạn.'
+            : 'Quét QR $player bằng Android để kết nối điện thoại.';
+      }
+      return switch (slot.stage) {
+        'checking' =>
+          'Điện thoại $player đã kết nối. Giữ máy thẳng, nhấn Cân tâm trên điện thoại, rồi nhả GA/LÙI để bắt đầu.',
+        'calibrating' =>
+          'Điện thoại $player đang cân tâm. Giữ máy yên và chờ hoàn tất.',
+        'lost' =>
+          '$player chưa có trạng thái cảm biến sẵn sàng. Kiểm tra điện thoại và cân tâm lại nếu cần.',
+        _ =>
+          '$player đã cân tâm. Nhả GA/LÙI để gửi input trung tính trước khi xuất phát.',
+      };
+    }
+    return 'Hai player đã sẵn sàng. Có thể bắt đầu trận.';
   }
 }
