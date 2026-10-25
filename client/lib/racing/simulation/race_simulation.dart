@@ -104,11 +104,24 @@ class _DirectionTransition {
 
 /// Owns all car movement and collision resolution in the fixed-step game loop.
 class RaceSimulation {
-  RaceSimulation({this.config = const RaceConfig()})
-    : red = CarState(player: PlayerId.red, position: Vector2(150, 112)),
-      blue = CarState(player: PlayerId.blue, position: Vector2(150, 166));
+  RaceSimulation({
+    this.config = const RaceConfig(),
+    Vector2? redStartPosition,
+    Vector2? blueStartPosition,
+  }) : _redStart = redStartPosition?.clone() ?? Vector2(150, 112),
+       _blueStart = blueStartPosition?.clone() ?? Vector2(150, 166),
+       red = CarState(
+         player: PlayerId.red,
+         position: redStartPosition?.clone() ?? Vector2(150, 112),
+       ),
+       blue = CarState(
+         player: PlayerId.blue,
+         position: blueStartPosition?.clone() ?? Vector2(150, 166),
+       );
 
   final RaceConfig config;
+  final Vector2 _redStart;
+  final Vector2 _blueStart;
   final CarState red;
   final CarState blue;
   final _collisionEvents = StreamController<CollisionEvent>.broadcast(
@@ -116,8 +129,17 @@ class RaceSimulation {
   );
   final Set<String> _activeContacts = {};
   final Map<PlayerId, _DirectionTransition> _directionTransitions = {};
+  final Set<PlayerId> _finishedPlayers = {};
   double _accumulator = 0;
   bool isRunning = false;
+
+  bool isPlayerFinished(PlayerId player) => _finishedPlayers.contains(player);
+
+  void finishPlayer(PlayerId player) {
+    _finishedPlayers.add(player);
+    (player == PlayerId.red ? red : blue).stop();
+    _directionTransitions.remove(player);
+  }
 
   Stream<CollisionEvent> get collisionEvents => _collisionEvents.stream;
 
@@ -132,26 +154,34 @@ class RaceSimulation {
   }
 
   void reset() {
-    red.position.setValues(150, 112);
+    red.position.setFrom(_redStart);
     red.stop();
     red.heading = 0;
-    blue.position.setValues(150, 166);
+    blue.position.setFrom(_blueStart);
     blue.stop();
     blue.heading = 0;
     _accumulator = 0;
     _activeContacts.clear();
     _directionTransitions.clear();
+    _finishedPlayers.clear();
     isRunning = false;
   }
 
-  void update(double elapsed, InputSource inputSource) {
+  void update(
+    double elapsed,
+    InputSource inputSource, {
+    void Function(double stepSeconds)? onFixedStep,
+  }) {
     if (!isRunning || elapsed <= 0) return;
     _accumulator += math.min(elapsed, config.fixedStep * config.maxSubSteps);
     var steps = 0;
-    while (_accumulator >= config.fixedStep && steps < config.maxSubSteps) {
-      _step(config.fixedStep, inputSource);
+    while (isRunning &&
+        _accumulator >= config.fixedStep &&
+        steps < config.maxSubSteps) {
       _accumulator -= config.fixedStep;
+      _step(config.fixedStep, inputSource);
       steps++;
+      onFixedStep?.call(config.fixedStep);
     }
     if (steps == config.maxSubSteps && _accumulator >= config.fixedStep) {
       _accumulator = 0;
@@ -159,12 +189,16 @@ class RaceSimulation {
   }
 
   void _step(double dt, InputSource inputSource) {
-    _move(red, inputSource.inputFor(PlayerId.red), dt);
-    _move(blue, inputSource.inputFor(PlayerId.blue), dt);
+    if (!isPlayerFinished(PlayerId.red)) {
+      _move(red, inputSource.inputFor(PlayerId.red), dt);
+    }
+    if (!isPlayerFinished(PlayerId.blue)) {
+      _move(blue, inputSource.inputFor(PlayerId.blue), dt);
+    }
 
     final contacts = <String>{};
-    _resolveWallContacts(red, contacts);
-    _resolveWallContacts(blue, contacts);
+    if (!isPlayerFinished(PlayerId.red)) _resolveWallContacts(red, contacts);
+    if (!isPlayerFinished(PlayerId.blue)) _resolveWallContacts(blue, contacts);
     _resolveCars(contacts);
     _activeContacts
       ..clear()
@@ -282,6 +316,10 @@ class RaceSimulation {
   }
 
   void _resolveCars(Set<String> contacts) {
+    if (isPlayerFinished(PlayerId.red) || isPlayerFinished(PlayerId.blue)) {
+      return;
+    }
+
     final delta = blue.position - red.position;
     final distance = delta.length;
     final minDistance = config.vehicleRadius * 2;

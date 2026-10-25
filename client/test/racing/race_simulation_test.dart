@@ -155,6 +155,31 @@ void main() {
       expect(events, hasLength(1));
     });
 
+    test('an unfinished car passes through a finished car without impact', () {
+      final simulation = RaceSimulation();
+      addTearDown(simulation.dispose);
+      final events = <CollisionEvent>[];
+      final subscription = simulation.collisionEvents.listen(events.add);
+      addTearDown(subscription.cancel);
+      simulation.red.position.setValues(200, 180);
+      simulation.red.driveSpeed = 80;
+      simulation.red.syncVelocity();
+      simulation.blue.position.setValues(233, 180);
+      simulation.blue.heading = math.pi;
+      simulation.finishPlayer(PlayerId.red);
+      final input = _TestInput()..values.clear();
+      input.values[PlayerId.blue] = const CarInput(throttle: 1);
+      simulation.setRunning(true);
+
+      _advance(simulation, input, 0.25);
+
+      expect(simulation.red.position.x, 200);
+      expect(simulation.red.speed, 0);
+      expect(simulation.blue.position.x, lessThan(simulation.red.position.x));
+      expect(simulation.blue.speed, simulation.config.maxSpeed);
+      expect(events, isEmpty);
+    });
+
     test('emits one wall impact and permits another after separation', () {
       final simulation = RaceSimulation();
       addTearDown(simulation.dispose);
