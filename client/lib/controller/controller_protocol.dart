@@ -41,4 +41,13 @@ abstract final class ControllerEvents {
   static const controllerState = 'controller_state';
   static const sessionEnd = 'session_end';
   static const sessionEnded = 'session_ended';
+  static const roomState = 'room_state';
+  static const roomClosed = 'room_closed';
+  static const slotConfig = 'slot_config';
+  static const slotConfigured = 'slot_configured';
+  static const slotReset = 'slot_reset';
+  static const slotInvite = 'slot_invite';
+  static const slotLeave = 'slot_leave';
+  static const slotLeft = 'slot_left';
+  static const roomClose = 'room_close';
 }

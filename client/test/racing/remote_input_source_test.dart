@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/racing/input/car_input.dart';
 import 'package:racing_client/racing/input/remote_input_source.dart';
 import 'package:racing_client/racing/input/selectable_input_source.dart';
+import 'package:racing_client/racing/input/multiplayer_input_source.dart';
 
 void main() {
   test('accepts only fresh, ordered samples from the current generation', () {
@@ -107,6 +108,107 @@ void main() {
     );
     expect(remote.readyToStart, isTrue);
     expect(remote.inputFor(PlayerId.red).steering, 0.4);
+  });
+
+  test('routes P2 input and locks only that car until a neutral sample after timeout', () {
+    var now = 0;
+    final remote = RemoteInputSource(
+      clockMicros: () => now,
+      player: PlayerId.blue,
+      requireNeutralAfterTimeout: true,
+    );
+    remote.setConnected(true, generation: 4);
+    remote.accept(
+      sequence: 0,
+      generation: 4,
+      steering: 0.2,
+      throttle: 1,
+      brake: 0,
+    );
+    expect(remote.inputFor(PlayerId.blue).throttle, 1);
+    expect(remote.inputFor(PlayerId.red).throttle, 0);
+
+    now = const Duration(milliseconds: 301).inMicroseconds;
+    expect(remote.inputFor(PlayerId.blue).throttle, 0);
+    expect(
+      remote.accept(
+        sequence: 1,
+        generation: 4,
+        steering: 0.2,
+        throttle: 1,
+        brake: 0,
+      ),
+      isTrue,
+    );
+    expect(remote.inputFor(PlayerId.blue).throttle, 0);
+    expect(remote.readyToStart, isFalse);
+    expect(
+      remote.accept(
+        sequence: 2,
+        generation: 4,
+        steering: 0,
+        throttle: 0,
+        brake: 0,
+      ),
+      isTrue,
+    );
+    expect(remote.readyToStart, isTrue);
+    expect(remote.inputFor(PlayerId.blue).throttle, 0);
+  });
+
+  test('routes Phone and Keyboard independently by player', () {
+    var now = 0;
+    final redPhone = RemoteInputSource(
+      clockMicros: () => now,
+      player: PlayerId.red,
+      requireNeutralAfterTimeout: true,
+    )..setConnected(true, generation: 1);
+    redPhone.accept(
+      sequence: 0,
+      generation: 1,
+      steering: 0,
+      throttle: 0,
+      brake: 0,
+    );
+    final bluePhone = RemoteInputSource(
+      clockMicros: () => now,
+      player: PlayerId.blue,
+      requireNeutralAfterTimeout: true,
+    )..setConnected(true, generation: 1);
+    bluePhone.accept(
+      sequence: 0,
+      generation: 1,
+      steering: 0,
+      throttle: 0,
+      brake: 0,
+    );
+    final keyboard = KeyboardInputSource();
+    final router = MultiplayerInputSource(
+      keyboard: keyboard,
+      phoneInputFor: (player) => player == PlayerId.red ? redPhone : bluePhone,
+    );
+
+    keyboard.handleKey(LogicalKeyboardKey.arrowUp, true);
+    expect(router.inputFor(PlayerId.red).throttle, 0);
+    expect(router.inputFor(PlayerId.blue).throttle, 1);
+
+    router.setPhoneSelected(PlayerId.blue, true);
+    bluePhone.accept(
+      sequence: 1,
+      generation: 1,
+      steering: 0,
+      throttle: 1,
+      brake: 0,
+    );
+    expect(router.inputFor(PlayerId.blue).throttle, 0);
+    bluePhone.accept(
+      sequence: 2,
+      generation: 1,
+      steering: 0,
+      throttle: 0,
+      brake: 0,
+    );
+    expect(router.inputFor(PlayerId.blue).throttle, 0);
   });
 
   test('keeps reverse input out of neutral readiness until it is released', () {

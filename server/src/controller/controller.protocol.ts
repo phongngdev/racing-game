@@ -1,4 +1,7 @@
 export type ControllerRole = 'game' | 'phone';
+export type ProtocolVersion = 1 | 2 | 3;
+export type MultiplayerSlotId = 'p1' | 'p2';
+export type MultiplayerSource = 'phone' | 'keyboard';
 
 export interface ControllerInput {
   seq: number;
@@ -38,6 +41,18 @@ export function isControllerInput(value: unknown): value is ControllerInput {
 
 export function isRole(value: unknown): value is ControllerRole {
   return value === 'game' || value === 'phone';
+}
+
+export function isProtocolVersion(value: unknown): value is ProtocolVersion {
+  return value === 1 || value === 2 || value === 3;
+}
+
+export function isMultiplayerSlot(value: unknown): value is MultiplayerSlotId {
+  return value === 'p1' || value === 'p2';
+}
+
+export function isMultiplayerSource(value: unknown): value is MultiplayerSource {
+  return value === 'phone' || value === 'keyboard';
 }
 
 export function allowedControllerOrigins(): Set<string> {

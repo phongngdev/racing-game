@@ -46,9 +46,14 @@ class HomePage extends StatelessWidget {
 }
 
 class PlayPage extends StatelessWidget {
-  const PlayPage({super.key, required this.onPractice});
+  const PlayPage({
+    super.key,
+    required this.onPractice,
+    required this.onMultiplayer,
+  });
 
   final VoidCallback onPractice;
+  final VoidCallback onMultiplayer;
 
   @override
   Widget build(BuildContext context) => _AppPage(
@@ -73,12 +78,13 @@ class PlayPage extends StatelessWidget {
           onTap: onPractice,
         ),
         const SizedBox(height: 14),
-        const _ModeCard(
+        _ModeCard(
           icon: Icons.people_alt_rounded,
           title: 'Multiplayer',
-          description: 'Chế độ chơi cùng người khác đang được phát triển.',
-          actionLabel: 'Sắp ra mắt',
-          enabled: false,
+          description:
+              'Tạo phòng · P1 điện thoại · P2 bàn phím hoặc điện thoại.',
+          actionLabel: 'Tạo phòng',
+          onTap: onMultiplayer,
         ),
       ],
     ),
@@ -92,7 +98,6 @@ class _ModeCard extends StatelessWidget {
     required this.description,
     required this.actionLabel,
     this.onTap,
-    this.enabled = true,
   });
 
   final IconData icon;
@@ -100,13 +105,10 @@ class _ModeCard extends StatelessWidget {
   final String description;
   final String actionLabel;
   final VoidCallback? onTap;
-  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = enabled
-        ? const Color(0xFF172033)
-        : const Color(0xFF98A0AE);
+    const foreground = Color(0xFF172033);
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 520;
@@ -126,31 +128,20 @@ class _ModeCard extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: enabled ? const Color(0xFFEEF3FF) : const Color(0xFFF2F3F5),
+            color: const Color(0xFFEEF3FF),
             borderRadius: BorderRadius.circular(14),
           ),
-          child: Icon(
-            icon,
-            color: enabled ? const Color(0xFF3267E3) : const Color(0xFF98A0AE),
-          ),
+          child: Icon(icon, color: const Color(0xFF3267E3)),
         );
-        final action = enabled
-            ? TextButton.icon(
-                onPressed: onTap,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                label: Text(actionLabel),
-              )
-            : Text(
-                actionLabel,
-                style: const TextStyle(
-                  color: Color(0xFF98A0AE),
-                  fontWeight: FontWeight.w600,
-                ),
-              );
+        final action = TextButton.icon(
+          onPressed: onTap,
+          icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+          label: Text(actionLabel),
+        );
 
         return Card(
           child: InkWell(
-            onTap: enabled ? onTap : null,
+            onTap: onTap,
             borderRadius: BorderRadius.circular(18),
             child: Padding(
               padding: const EdgeInsets.all(22),

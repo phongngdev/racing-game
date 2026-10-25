@@ -214,4 +214,117 @@ describe('controller WebSocket relay integration', () => {
     resumedPhone.close();
     game.close();
   });
+
+  it('routes v3 phones to their selected red and blue room slots', async () => {
+    const game = await openSocket(address);
+    const p1 = await openSocket(address);
+    const p2 = await openSocket(address);
+    try {
+      const gameRegistered = nextMessage(game, 'registered');
+      game.send(
+        JSON.stringify({
+          event: 'register',
+          data: { role: 'game', version: 3, action: 'create' },
+        }),
+      );
+      const registration = (await gameRegistered).data;
+      expect(registration['version']).toBe(3);
+      expect(registration['invites']).toHaveLength(1);
+
+      const p1Registered = nextMessage(p1, 'registered');
+      p1.send(
+        JSON.stringify({
+          event: 'register',
+          data: {
+            role: 'phone',
+            version: 3,
+            action: 'join',
+            roomId: registration['roomId'],
+            slotId: 'p1',
+            pairingToken: (registration['invites'] as Array<Record<string, unknown>>)[0]?.['pairingToken'],
+          },
+        }),
+      );
+      const p1Identity = (await p1Registered).data;
+      expect(p1Identity).toMatchObject({ slotId: 'p1', player: 'red' });
+
+      const p2Invite = nextMessage(game, 'slot_invite');
+      const configured = nextMessage(game, 'slot_configured');
+      game.send(
+        JSON.stringify({
+          event: 'slot_config',
+          data: {
+            roomId: registration['roomId'],
+            slotId: 'p2',
+            source: 'phone',
+            requestId: 'p2-phone',
+          },
+        }),
+      );
+      expect((await configured).data['requestId']).toBe('p2-phone');
+      const invite = (await p2Invite).data;
+      const p2Registered = nextMessage(p2, 'registered');
+      p2.send(
+        JSON.stringify({
+          event: 'register',
+          data: {
+            role: 'phone',
+            version: 3,
+            action: 'join',
+            roomId: registration['roomId'],
+            slotId: invite['slotId'],
+            pairingToken: invite['pairingToken'],
+          },
+        }),
+      );
+      const p2Identity = (await p2Registered).data;
+      expect(p2Identity).toMatchObject({ slotId: 'p2', player: 'blue' });
+
+      for (const [phone, identity, slotId] of [
+        [p1, p1Identity, 'p1'],
+        [p2, p2Identity, 'p2'],
+      ] as const) {
+        const relayed = nextMessage(game, 'input');
+        phone.send(
+          JSON.stringify({
+            event: 'input',
+            data: {
+              roomId: registration['roomId'],
+              slotId,
+              generation: identity['generation'],
+              seq: 0,
+              steering: 0,
+              throttle: 1,
+              reverse: 0,
+              brake: 0,
+            },
+          }),
+        );
+        expect((await relayed).data['slotId']).toBe(slotId);
+      }
+
+      const p2Collision = nextMessage(p2, 'collision');
+      game.send(
+        JSON.stringify({
+          event: 'collision',
+          data: {
+            roomId: registration['roomId'],
+            slotId: 'p2',
+            generation: p2Identity['generation'],
+          },
+        }),
+      );
+      expect((await p2Collision).data['slotId']).toBe('p2');
+      game.send(
+        JSON.stringify({
+          event: 'room_close',
+          data: { roomId: registration['roomId'] },
+        }),
+      );
+    } finally {
+      p1.close();
+      p2.close();
+      game.close();
+    }
+  });
 });

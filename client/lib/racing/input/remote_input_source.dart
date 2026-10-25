@@ -5,10 +5,14 @@ class RemoteInputSource implements InputSource {
   RemoteInputSource({
     int Function()? clockMicros,
     this.timeout = const Duration(milliseconds: 300),
+    this.player = PlayerId.red,
+    this.requireNeutralAfterTimeout = false,
   }) : _clockMicros = clockMicros ?? _monotonicClock();
 
   final int Function() _clockMicros;
   final Duration timeout;
+  final PlayerId player;
+  final bool requireNeutralAfterTimeout;
   CarInput _latest = const CarInput();
   int? _receivedAt;
   int? _generation;
@@ -18,10 +22,12 @@ class RemoteInputSource implements InputSource {
 
   bool get connected => _connected;
   int? get generation => _generation;
-  bool get hasFreshInput =>
-      _connected &&
-      _receivedAt != null &&
-      _clockMicros() - _receivedAt! <= timeout.inMicroseconds;
+  bool get hasFreshInput {
+    _expireIfStale();
+    return _connected &&
+        _receivedAt != null &&
+        _clockMicros() - _receivedAt! <= timeout.inMicroseconds;
+  }
 
   bool get readyToStart =>
       hasFreshInput &&
@@ -50,6 +56,7 @@ class RemoteInputSource implements InputSource {
     if (!_connected || generation != _generation || sequence <= _lastSequence) {
       return false;
     }
+    _expireIfStale();
     if (!steering.isFinite ||
         !throttle.isFinite ||
         !reverse.isFinite ||
@@ -105,10 +112,18 @@ class RemoteInputSource implements InputSource {
 
   @override
   CarInput inputFor(PlayerId player) {
-    if (player != PlayerId.red || !hasFreshInput || _requiresNeutral) {
+    if (player != this.player || !hasFreshInput || _requiresNeutral) {
       return const CarInput();
     }
     return _latest;
+  }
+
+  void _expireIfStale() {
+    if (!requireNeutralAfterTimeout || _receivedAt == null) return;
+    if (_clockMicros() - _receivedAt! > timeout.inMicroseconds) {
+      _latest = const CarInput();
+      _requiresNeutral = true;
+    }
   }
 
   static int Function() _monotonicClock() {

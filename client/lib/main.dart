@@ -12,13 +12,16 @@ import 'catalog/catalog_repository.dart';
 import 'chat/chat_controller.dart';
 import 'chat/chat_widgets.dart';
 import 'chat/lm_studio_service.dart';
-import 'controller/pairing_payload.dart';
 import 'pages/app_pages.dart';
 import 'pages/android_entry_page.dart';
 import 'pages/practice_setup_page.dart';
+import 'pages/multiplayer_setup_page.dart';
 import 'controller/phone_controller_flow_page.dart';
 import 'controller/qr_scanner_page.dart';
+import 'controller/room_pairing_payload.dart';
 import 'racing/practice_controller_session.dart';
+import 'racing/multiplayer_room_session.dart';
+import 'racing/multiplayer_race_page.dart';
 import 'racing/racing_page.dart';
 
 void main() => runApp(const MyApp());
@@ -146,18 +149,27 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _scanControllerQr(BuildContext context) async {
-    final pairing = await Navigator.of(context).push<PairingPayload>(
-      MaterialPageRoute<PairingPayload>(
+    final pairing = await Navigator.of(context).push<ScannedControllerPayload>(
+      MaterialPageRoute<ScannedControllerPayload>(
         settings: const RouteSettings(name: '/controller/scan'),
         builder: (_) => const QrScannerPage(),
       ),
     );
     if (!context.mounted || pairing == null) return;
+    final practicePayload = switch (pairing) {
+      PracticeControllerPayload(:final payload) => payload,
+      RoomControllerPayload() => null,
+    };
+    final roomPayload = switch (pairing) {
+      PracticeControllerPayload() => null,
+      RoomControllerPayload(:final payload) => payload,
+    };
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: '/controller'),
         builder: (routeContext) => PhoneControllerFlowPage(
-          initialPairingPayload: pairing,
+          initialPairingPayload: practicePayload,
+          initialRoomPairingPayload: roomPayload,
           onExit: () => Navigator.of(routeContext).pop(),
         ),
       ),
@@ -289,6 +301,8 @@ class _DemoShellState extends State<DemoShell> {
   int _selectedIndex = 0;
   bool _practiceSetupOpen = false;
   bool _practiceGameOpen = false;
+  bool _multiplayerSetupOpen = false;
+  bool _multiplayerGameOpen = false;
   late final ChatController _chatController;
 
   @override
@@ -368,12 +382,55 @@ class _DemoShellState extends State<DemoShell> {
     }
   }
 
+  Future<void> _openMultiplayer() async {
+    if (_multiplayerSetupOpen) return;
+    _multiplayerSetupOpen = true;
+    final navigator = Navigator.of(context);
+    try {
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/multiplayer/lobby'),
+          builder: (_) => MultiplayerSetupPage(
+            onBack: () => navigator.pop(),
+            onStart: (session) => _openMultiplayerGame(navigator, session),
+          ),
+        ),
+      );
+    } finally {
+      _multiplayerSetupOpen = false;
+    }
+  }
+
+  Future<void> _openMultiplayerGame(
+    NavigatorState navigator,
+    MultiplayerRoomSession session,
+  ) async {
+    if (_multiplayerGameOpen) return;
+    _multiplayerGameOpen = true;
+    try {
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/multiplayer/game'),
+          builder: (_) => MultiplayerRacePage(
+            session: session,
+            onBack: () => navigator.pop(),
+          ),
+        ),
+      );
+    } finally {
+      _multiplayerGameOpen = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 920;
     final pages = <Widget>[
       HomePage(onPlay: () => _goTo(1)),
-      PlayPage(onPractice: () => unawaited(_openPractice())),
+      PlayPage(
+        onPractice: () => unawaited(_openPractice()),
+        onMultiplayer: () => unawaited(_openMultiplayer()),
+      ),
       SettingsPage(
         user: widget.auth.user!,
         onOpenPhoneController:
