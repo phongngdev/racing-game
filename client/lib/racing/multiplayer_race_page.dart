@@ -90,6 +90,13 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
 
   void _sessionChanged() {
     _applySources();
+    final shownSlot = _qrSlot;
+    if (shownSlot != null) {
+      final slot = widget.session.slot(shownSlot);
+      if (slot?.connected == true || slot?.source != 'phone') {
+        _qrSlot = null;
+      }
+    }
     if (widget.session.state == MultiplayerRoomState.closed &&
         _simulation.isRunning) {
       _pause();
@@ -290,7 +297,6 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                     ],
                   ),
                 ),
-                if (_qrSlot case final slotId?) _qrPanel(slotId),
                 const SizedBox(height: 8),
                 const Text(
                   'WASD · P1 xe đỏ      ↑ ↓ ← → · P2 xe xanh      ESC · pause      R · reset',
@@ -304,36 +310,105 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     );
   }
 
-  Widget _rightPanel() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      for (final id in const ['p1', 'p2']) ...[
-        _slotPanel(id),
+  Widget _rightPanel() => SingleChildScrollView(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final id in const ['p1', 'p2']) ...[
+          _slotPanel(id),
+          const SizedBox(height: 10),
+        ],
+        if (!_simulation.isRunning) ...[
+          _readinessPanel(),
+          const SizedBox(height: 10),
+        ],
+        _speedCard(),
         const SizedBox(height: 10),
-      ],
-      _speedCard(),
-      const SizedBox(height: 10),
-      FilledButton.icon(
-        onPressed: _toggle,
-        icon: Icon(_simulation.isRunning ? Icons.pause : Icons.play_arrow),
-        label: Text(_simulation.isRunning ? 'Tạm dừng' : 'Bắt đầu đua'),
-      ),
-      const SizedBox(height: 7),
-      OutlinedButton.icon(
-        onPressed: _reset,
-        icon: const Icon(Icons.restart_alt_rounded),
-        label: const Text('Reset xe'),
-      ),
-      if (widget.session.error != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            widget.session.error!,
-            style: const TextStyle(color: Color(0xFFFF9C92), fontSize: 11),
-          ),
+        FilledButton.icon(
+          onPressed: _toggle,
+          icon: Icon(_simulation.isRunning ? Icons.pause : Icons.play_arrow),
+          label: Text(_simulation.isRunning ? 'Tạm dừng' : 'Bắt đầu đua'),
         ),
-    ],
+        const SizedBox(height: 7),
+        OutlinedButton.icon(
+          onPressed: _reset,
+          icon: const Icon(Icons.restart_alt_rounded),
+          label: const Text('Reset xe'),
+        ),
+        if (_qrSlot case final slotId?) ...[
+          const SizedBox(height: 10),
+          _qrPanel(slotId),
+        ],
+        if (widget.session.error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              widget.session.error!,
+              style: const TextStyle(color: Color(0xFFFF9C92), fontSize: 11),
+            ),
+          ),
+      ],
+    ),
   );
+
+  Widget _readinessPanel() {
+    MultiplayerSlotStatus? pending;
+    for (final slot in widget.session.slots.values) {
+      if (!widget.session.isSlotReadyToStart(slot.id)) {
+        pending = slot;
+        break;
+      }
+    }
+    final ready = widget.session.canStart;
+    final message = ready
+        ? 'Hai player đã sẵn sàng. Có thể bắt đầu trận.'
+        : pending != null
+        ? _slotGuidance(pending)
+        : 'Đang chờ relay gửi trạng thái hai player slot…';
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: ready ? const Color(0xFF173321) : const Color(0xFF382E1B),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            ready ? Icons.check_circle_outline : Icons.info_outline,
+            color: ready ? const Color(0xFF5BD184) : const Color(0xFFF2C66D),
+            size: 18,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _slotGuidance(MultiplayerSlotStatus slot) {
+    final player = slot.id.toUpperCase();
+    if (!slot.connected) {
+      return slot.reserved
+          ? '$player tạm ngắt kết nối · có thể kết nối lại trong 30 giây.'
+          : 'Quét QR $player bằng Android để kết nối điện thoại.';
+    }
+    return switch (slot.stage) {
+      'checking' =>
+        'Điện thoại $player đã kết nối. Giữ máy thẳng, nhấn Cân tâm trên điện thoại, rồi nhả GA/LÙI để bắt đầu.',
+      'calibrating' =>
+        'Điện thoại $player đang cân tâm. Giữ máy yên và chờ hoàn tất.',
+      'lost' =>
+        '$player chưa có trạng thái cảm biến sẵn sàng. Kiểm tra điện thoại và cân tâm lại nếu cần.',
+      _ =>
+        '$player đã cân tâm. Nhả GA/LÙI để gửi input trung tính trước khi xuất phát.',
+    };
+  }
 
   Widget _slotPanel(String slotId) {
     final slot = widget.session.slot(slotId);
@@ -341,15 +416,22 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     final source = slot?.source ?? (red ? 'phone' : 'keyboard');
     final connected = slot?.connected == true;
     final remote = widget.session.remoteFor(red ? PlayerId.red : PlayerId.blue);
-    final label = connected
-        ? remote.hasFreshInput
-              ? 'Connected · ${slot?.stage ?? 'checking'}'
-              : 'Connected · chờ input'
-        : slot?.reserved == true
-        ? 'Disconnected · đang giữ slot'
-        : source == 'keyboard'
+    final label = source == 'keyboard'
         ? 'Keyboard · Web'
-        : 'Disconnected';
+        : !connected
+        ? slot?.reserved == true
+              ? 'Disconnected · giữ slot 30 giây'
+              : 'Disconnected'
+        : switch (slot?.stage) {
+            'checking' => 'Phone đã kết nối · cần cân tâm',
+            'calibrating' => 'Phone đã kết nối · đang cân tâm',
+            'lost' => 'Phone kết nối · cảm biến chưa sẵn sàng',
+            'ready' when widget.session.isSlotReadyToStart(slotId) =>
+              'Phone · sẵn sàng',
+            'ready' when remote.hasFreshInput => 'Đã cân tâm · nhả GA/LÙI',
+            'ready' => 'Đã cân tâm · chờ input trung tính',
+            _ => 'Phone · đang kiểm tra',
+          };
     final color = red ? const Color(0xFFFF696E) : const Color(0xFF68A4FF);
     return Container(
       padding: const EdgeInsets.all(12),
@@ -440,31 +522,29 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     if (invite == null) {
       return TextButton(
         onPressed: () => setState(() => _qrSlot = null),
-        child: Text('QR $slotId đang được tạo · Ẩn'),
+        child: Text('QR $slotId chưa sẵn sàng · Ẩn'),
       );
     }
     return Container(
-      margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          QrImageView(data: invite.toQrValue(), size: 112),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Quét QR ${slotId.toUpperCase()} bằng Android'),
-              const Text('Hạn 5 phút'),
-              TextButton(
-                onPressed: () => setState(() => _qrSlot = null),
-                child: const Text('Ẩn QR'),
-              ),
-            ],
+          Text(
+            'Quét QR ${slotId.toUpperCase()} bằng Android',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Center(child: QrImageView(data: invite.toQrValue(), size: 190)),
+          const Text('Mã có hiệu lực 5 phút', textAlign: TextAlign.center),
+          TextButton(
+            onPressed: () => setState(() => _qrSlot = null),
+            child: const Text('Ẩn QR'),
           ),
         ],
       ),

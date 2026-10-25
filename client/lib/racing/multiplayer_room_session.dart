@@ -122,16 +122,21 @@ class MultiplayerRoomSession extends ChangeNotifier {
         _state == MultiplayerRoomState.closed) {
       return false;
     }
+    if (_slots.length != 2) return false;
     for (final slot in _slots.values) {
-      if (slot.source == 'keyboard') continue;
-      if (slot.source != 'phone' ||
-          !slot.connected ||
-          slot.stage != 'ready' ||
-          !remoteFor(slot.player).readyToStart) {
-        return false;
-      }
+      if (!isSlotReadyToStart(slot.id)) return false;
     }
-    return _slots.length == 2;
+    return true;
+  }
+
+  bool isSlotReadyToStart(String slotId) {
+    final slot = _slots[slotId];
+    if (slot == null) return false;
+    if (slot.source == 'keyboard') return true;
+    return slot.source == 'phone' &&
+        slot.connected &&
+        slot.stage == 'ready' &&
+        remoteFor(slot.player).readyToStart;
   }
 
   void setGameRunning(bool value) => _gameRunning = value;
