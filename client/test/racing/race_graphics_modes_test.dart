@@ -13,6 +13,44 @@ import 'package:racing_client/racing/tracks/sprint_track_generator.dart';
 import 'package:racing_client/racing/tracks/track_definition.dart';
 
 void main() {
+  testWidgets('Lap Race renders prepared Kenney surfaces and can switch A/B', (
+    tester,
+  ) async {
+    final assets = SprintGraphicsAssets(loadSprite: (_) => _solidTestSprite());
+    final simulation = RaceSimulation();
+    final snapshot = ValueNotifier(const RaceSnapshot());
+    final game = ApexRacingGame(
+      simulation: simulation,
+      inputSource: KeyboardInputSource(),
+      snapshot: snapshot,
+      onKeyboardEvent: (_) => KeyEventResult.ignored,
+      lapTrack: LapRaceTrack.standard,
+      sprintGraphicsAssets: assets,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(width: 900, height: 600, child: GameWidget(game: game)),
+      ),
+    );
+    await tester.runAsync(() async {
+      await game.loaded.timeout(const Duration(seconds: 5));
+      await game.ready().timeout(const Duration(seconds: 5));
+      await game.graphicsPreload.timeout(const Duration(seconds: 5));
+    });
+    game.pauseEngine();
+    await tester.pump();
+
+    expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+    expect(game.setGraphicsStyle(SprintGraphicsStyle.legacy), isTrue);
+    expect(game.setGraphicsStyle(SprintGraphicsStyle.kenney), isTrue);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    simulation.dispose();
+    snapshot.dispose();
+  });
+
   testWidgets('Random Sprint and Lap fall back if a car sprite fails', (
     tester,
   ) async {

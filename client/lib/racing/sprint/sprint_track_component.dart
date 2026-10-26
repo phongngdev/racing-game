@@ -5,6 +5,8 @@ import 'package:flame/components.dart';
 
 import '../tracks/track_definition.dart';
 import '../tracks/track_geometry.dart';
+import '../graphics/race_surface_patches.dart';
+import '../graphics/race_surface_textures.dart';
 import 'sprint_graphics_assets.dart';
 
 class SprintTrackComponent extends Component {
@@ -12,13 +14,19 @@ class SprintTrackComponent extends Component {
     this.track,
     this.assets, {
     bool hasKenneyPresentation = false,
+    this.surfaceTextures,
   }) : _roadPath = hasKenneyPresentation
            ? _makeRoadPath(track.roadRects)
-           : Path();
+           : Path(),
+       _dirtPatches = hasKenneyPresentation
+           ? RaceSurfacePatches.sprint(track)
+           : const [];
 
   final TrackDefinition track;
   final SprintGraphicsAssets? assets;
+  final RaceSurfaceTextures? surfaceTextures;
   final Path _roadPath;
+  final List<RaceSurfacePatch> _dirtPatches;
   SprintGraphicsStyle style = SprintGraphicsStyle.legacy;
   final _grass = Paint()..color = const Color(0xFF24452F);
   final _road = Paint()..color = const Color(0xFF34383C);
@@ -57,13 +65,24 @@ class SprintTrackComponent extends Component {
   void render(Canvas canvas) {
     final visible =
         CameraComponent.currentCamera?.visibleWorldRect ?? track.worldBounds;
-    canvas.drawRect(visible.intersect(track.worldBounds), _grass);
+    final visibleBounds = visible.intersect(track.worldBounds);
+    if (style == SprintGraphicsStyle.kenney && surfaceTextures != null) {
+      surfaceTextures!.drawGrass(canvas, visibleBounds, _grass.color);
+      surfaceTextures!.drawDirtPatches(canvas, _dirtPatches, visible);
+    } else {
+      canvas.drawRect(visibleBounds, _grass);
+    }
     final visibleRoads = track.roadRects.where(visible.overlaps).isNotEmpty;
     if (visibleRoads) {
       if (style == SprintGraphicsStyle.kenney) {
         canvas.save();
         canvas.clipRect(visible);
-        canvas.drawPath(_roadPath, _road);
+        final textures = surfaceTextures;
+        if (textures == null) {
+          canvas.drawPath(_roadPath, _road);
+        } else {
+          textures.drawAsphalt(canvas, _roadPath, _road.color);
+        }
         canvas.drawPath(_roadPath, _roadOutlineShadow);
         canvas.drawPath(_roadPath, _roadOutline);
         canvas.drawPath(_roadPath, _roadKerb);

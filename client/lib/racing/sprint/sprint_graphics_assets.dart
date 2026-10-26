@@ -40,6 +40,9 @@ class SprintGraphicsAssets {
   static const _assetKeys = <String>[
     'vehicles/car_red_1.png',
     'vehicles/car_blue_1.png',
+    'surfaces/land_grass.png',
+    'surfaces/land_dirt.png',
+    'surfaces/road_asphalt.png',
     'scenery/tree_small.png',
     'scenery/tree_large.png',
     'scenery/rock1.png',

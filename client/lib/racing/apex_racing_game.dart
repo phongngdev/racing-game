@@ -8,6 +8,8 @@ import 'dart:ui'
         Offset,
         Paint,
         PaintingStyle,
+        Path,
+        PathOperation,
         Radius,
         Rect,
         RRect;
@@ -22,6 +24,8 @@ import 'package:flutter/widgets.dart' show KeyEventResult;
 
 import 'input/car_input.dart';
 import 'graphics/race_scenery_component.dart';
+import 'graphics/race_surface_patches.dart';
+import 'graphics/race_surface_textures.dart';
 import 'lap/lap_race_track.dart';
 import 'simulation/race_simulation.dart';
 import 'tracks/track_definition.dart';
@@ -57,6 +61,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     _graphicsAssets = supportsRaceGraphics
         ? sprintGraphicsAssets ?? SprintGraphicsAssets()
         : null;
+    _surfaceTextures = supportsRaceGraphics ? RaceSurfaceTextures() : null;
     camera.viewfinder.position = Vector2(
       RaceTrackLayout.worldWidth / 2,
       RaceTrackLayout.worldHeight / 2,
@@ -67,7 +72,12 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
             track,
             _graphicsAssets,
             hasKenneyPresentation: true,
+            surfaceTextures: _surfaceTextures,
           );
+    _lapTrackComponent = TrackComponent(
+      lapTrack: lapTrack,
+      surfaceTextures: _surfaceTextures,
+    );
     _sceneryComponents = _graphicsAssets == null
         ? []
         : [
@@ -92,7 +102,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
       if (_sprintTrackComponent case final component?)
         component
       else
-        TrackComponent(lapTrack: lapTrack),
+        _lapTrackComponent,
       ..._sceneryComponents,
       _redCarComponent,
       _blueCarComponent,
@@ -115,11 +125,13 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   final LapRaceTrack? lapTrack;
   final TrackDefinition? sprintTrack;
   late final SprintGraphicsAssets? _graphicsAssets;
+  late final RaceSurfaceTextures? _surfaceTextures;
   final Completer<void> _graphicsPreloadCompleter = Completer<void>();
   Future<void> get graphicsPreload => _graphicsPreloadCompleter.future;
   bool get isGraphicsPreloading =>
       _graphicsAssets != null && !_graphicsPreloadCompleter.isCompleted;
   late final SprintTrackComponent? _sprintTrackComponent;
+  late final TrackComponent _lapTrackComponent;
   late final List<RaceSceneryComponent> _sceneryComponents;
   late final CarComponent _redCarComponent;
   late final CarComponent _blueCarComponent;
@@ -140,6 +152,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     }
     _graphicsStyle = style;
     _sprintTrackComponent?.style = style;
+    _lapTrackComponent.style = style;
     for (final component in _sceneryComponents) {
       component.style = style;
     }
@@ -156,12 +169,13 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
       _graphicsPreloadCompleter.complete();
       return;
     }
-    unawaited(_preloadFixedSprintGraphics(assets));
+    unawaited(_preloadRaceGraphics(assets));
   }
 
-  Future<void> _preloadFixedSprintGraphics(SprintGraphicsAssets assets) async {
+  Future<void> _preloadRaceGraphics(SprintGraphicsAssets assets) async {
     try {
       await assets.preload();
+      await _surfaceTextures?.prepare(assets);
       if (supportsKenneyGraphics) {
         setGraphicsStyle(SprintGraphicsStyle.kenney);
       }
@@ -222,6 +236,12 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   Color backgroundColor() => const Color(0xFF193323);
 
   @override
+  void onRemove() {
+    _surfaceTextures?.dispose();
+    super.onRemove();
+  }
+
+  @override
   void update(double dt) {
     final frameUpdate = onFrameUpdate;
     if (frameUpdate == null) {
@@ -244,9 +264,21 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
 }
 
 class TrackComponent extends Component {
-  TrackComponent({this.lapTrack});
+  TrackComponent({this.lapTrack, this.surfaceTextures})
+    : _lapRoadPath = lapTrack == null ? Path() : _makeLapRoadPath(),
+      _dirtPatches = lapTrack == null ? const [] : RaceSurfacePatches.lap();
 
   final LapRaceTrack? lapTrack;
+  final RaceSurfaceTextures? surfaceTextures;
+  final Path _lapRoadPath;
+  final List<RaceSurfacePatch> _dirtPatches;
+  SprintGraphicsStyle style = SprintGraphicsStyle.legacy;
+
+  static Path _makeLapRoadPath() {
+    final asphalt = Path()..addRect(const Rect.fromLTWH(64, 64, 832, 512));
+    final island = Path()..addRect(RaceTrackLayout.island);
+    return Path.combine(PathOperation.difference, asphalt, island);
+  }
 
   @override
   void render(Canvas canvas) {
@@ -258,17 +290,43 @@ class TrackComponent extends Component {
     final kerbWhite = Paint()..color = const Color(0xFFF0E9D8);
     final lane = Paint()..color = const Color(0xFFA6A394);
 
-    canvas.drawRect(
-      Rect.fromLTWH(
-        0,
-        0,
-        RaceTrackLayout.worldWidth,
-        RaceTrackLayout.worldHeight,
-      ),
-      grass,
-    );
-    canvas.drawRect(const Rect.fromLTWH(64, 64, 832, 512), asphalt);
-    canvas.drawRect(RaceTrackLayout.island, islandPaint);
+    final texturedRace =
+        lapTrack != null &&
+        style == SprintGraphicsStyle.kenney &&
+        surfaceTextures != null;
+    if (texturedRace) {
+      final visible =
+          CameraComponent.currentCamera?.visibleWorldRect ??
+          Rect.fromLTWH(
+            0,
+            0,
+            RaceTrackLayout.worldWidth,
+            RaceTrackLayout.worldHeight,
+          );
+      final bounds = visible.intersect(
+        const Rect.fromLTWH(
+          0,
+          0,
+          RaceTrackLayout.worldWidth,
+          RaceTrackLayout.worldHeight,
+        ),
+      );
+      surfaceTextures!.drawGrass(canvas, bounds, grass.color);
+      surfaceTextures!.drawDirtPatches(canvas, _dirtPatches, visible);
+      surfaceTextures!.drawAsphalt(canvas, _lapRoadPath, asphalt.color);
+    } else {
+      canvas.drawRect(
+        Rect.fromLTWH(
+          0,
+          0,
+          RaceTrackLayout.worldWidth,
+          RaceTrackLayout.worldHeight,
+        ),
+        grass,
+      );
+      canvas.drawRect(const Rect.fromLTWH(64, 64, 832, 512), asphalt);
+      canvas.drawRect(RaceTrackLayout.island, islandPaint);
+    }
 
     for (final wall in RaceTrackLayout.walls) {
       if (wall.$1 == 'island') {
@@ -360,6 +418,8 @@ class TrackComponent extends Component {
         }
       }
     }
+
+    if (texturedRace) return;
 
     // A few square grass tufts add texture without external image assets.
     final tuft = Paint()..color = const Color(0xFF397049);
