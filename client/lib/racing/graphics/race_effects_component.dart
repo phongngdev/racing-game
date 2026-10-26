@@ -46,6 +46,7 @@ class RaceEffectsComponent extends Component {
     required List<Rect> drivableWalls,
     bool enabled = true,
     bool useKenneyVehicleGeometry = false,
+    this.onEdgeGrit,
     this.config = const RaceEffectsConfig(),
   }) : _simulation = simulation,
        _drivableWalls = List.unmodifiable(drivableWalls),
@@ -62,6 +63,7 @@ class RaceEffectsComponent extends Component {
 
   static const _cellSize = 128.0;
   final RaceEffectsConfig config;
+  final void Function(PlayerId player, double speed)? onEdgeGrit;
   late final Component overlay = _RaceEffectsOverlay(this);
   int get _maximumDust => config.maximumDust;
   int get _maximumImpacts => config.maximumImpacts;
@@ -80,6 +82,14 @@ class RaceEffectsComponent extends Component {
   final Map<PlayerId, double> _dustElapsed = {
     PlayerId.red: 0,
     PlayerId.blue: 0,
+  };
+  final Map<PlayerId, double> _edgeSoundElapsed = {
+    PlayerId.red: 0,
+    PlayerId.blue: 0,
+  };
+  final Map<PlayerId, bool> _edgeSoundActive = {
+    PlayerId.red: false,
+    PlayerId.blue: false,
   };
   final Map<PlayerId, Offset?> _lastLeftWheel = {
     PlayerId.red: null,
@@ -156,6 +166,8 @@ class RaceEffectsComponent extends Component {
     for (final player in PlayerId.values) {
       _dustElapsed[player] = 0;
       _dustMode[player] = 0;
+      _edgeSoundElapsed[player] = 0;
+      _edgeSoundActive[player] = false;
       _lastLeftWheel[player] = null;
       _lastRightWheel[player] = null;
       _leftWheelDistance[player] = 0;
@@ -166,11 +178,48 @@ class RaceEffectsComponent extends Component {
   }
 
   void _onSimulationStep(double dt) {
-    if (!_enabled) return;
     for (final car in [_simulation.red, _simulation.blue]) {
       final input = _inputSource.inputFor(car.player);
+      _emitEdgeGrit(car, input, dt);
+      if (!_enabled) continue;
       _emitBrakeSkid(car, input);
       _emitDrivingDust(car, input, dt);
+    }
+  }
+
+  void _emitEdgeGrit(CarState car, CarInput input, double dt) {
+    if (input.emergencyStop ||
+        _simulation.isPlayerFinished(car.player) ||
+        car.speed < 35) {
+      _edgeSoundElapsed[car.player] = 0;
+      _edgeSoundActive[car.player] = false;
+      return;
+    }
+    final position = Offset(car.position.x, car.position.y);
+    var nearestDistance = double.infinity;
+    for (final wall in _drivableWalls) {
+      final point = Offset(
+        position.dx.clamp(wall.left, wall.right).toDouble(),
+        position.dy.clamp(wall.top, wall.bottom).toDouble(),
+      );
+      nearestDistance = math.min(nearestDistance, (point - position).distance);
+    }
+    final nearEdge =
+        nearestDistance > 0 &&
+        nearestDistance <=
+            _simulation.config.vehicleRadius + config.edgeClearance;
+    if (!nearEdge) {
+      _edgeSoundElapsed[car.player] = 0;
+      _edgeSoundActive[car.player] = false;
+      return;
+    }
+    final elapsed = (_edgeSoundElapsed[car.player] ?? 0) + dt;
+    if (!(_edgeSoundActive[car.player] ?? false) || elapsed >= 0.38) {
+      onEdgeGrit?.call(car.player, car.speed);
+      _edgeSoundElapsed[car.player] = 0;
+      _edgeSoundActive[car.player] = true;
+    } else {
+      _edgeSoundElapsed[car.player] = elapsed;
     }
   }
 

@@ -47,6 +47,7 @@ dependencies:
   vibration: ^3.2.1
   mobile_scanner: ^7.4.2
   qr_flutter: ^4.1.0
+  flutter_soloud: 5.2.1
 
 dev_dependencies:
   flutter_test:
@@ -74,6 +75,11 @@ flutter:
     - assets/images/racing/vehicles/
     - assets/images/racing/scenery/
     - assets/images/racing/surfaces/
+    - assets/audio/racing/engine/
+    - assets/audio/racing/collision/
+    - assets/audio/racing/surface/
+    - assets/audio/racing/race/
+    - assets/audio/racing/result/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

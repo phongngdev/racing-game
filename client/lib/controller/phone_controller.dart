@@ -9,6 +9,7 @@ import 'controller_protocol.dart';
 import 'pairing_payload.dart';
 import 'room_pairing_payload.dart';
 import 'tilt_input.dart';
+import '../racing/audio/race_audio.dart';
 
 class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   final CollisionHaptics _collisionHaptics = CollisionHaptics();
@@ -29,7 +30,6 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
   bool _shouldReconnect = false;
   bool _throttlePressed = false;
   bool _reversePressed = false;
-  bool _vibrationEnabled = true;
   int? _generation;
   PairingPayload? _pairingPayload;
   RoomPairingPayload? _roomPairingPayload;
@@ -45,7 +45,7 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
       isConnected && isCalibrated && (_tilt?.hasFreshSample ?? false);
   bool get throttlePressed => _throttlePressed;
   bool get reversePressed => _reversePressed;
-  bool get vibrationEnabled => _vibrationEnabled;
+  bool get vibrationEnabled => AudioSettingsController.shared.vibration;
   double get steering => _steering;
   bool get isPairing => _pairingPayload != null || _roomPairingPayload != null;
   String? get pairingLabel => _roomPairingPayload == null
@@ -56,8 +56,8 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
       _collisionHaptics.test(foreground: !_backgrounded && !_disposed);
 
   void setVibrationEnabled(bool enabled) {
-    if (_vibrationEnabled == enabled) return;
-    _vibrationEnabled = enabled;
+    if (vibrationEnabled == enabled) return;
+    AudioSettingsController.shared.setVibration(enabled);
     if (!enabled) unawaited(_collisionHaptics.cancel());
     notifyListeners();
   }
@@ -402,16 +402,39 @@ class PhoneController extends ChangeNotifier with WidgetsBindingObserver {
       );
       unawaited(
         _collisionHaptics.playForSession(
-          foreground: isConnected && !_backgrounded && _vibrationEnabled,
+          foreground: isConnected && !_backgrounded && vibrationEnabled,
           currentGeneration: _generation,
           eventGeneration: eventGeneration,
+          intensity: message.data['intensity'] is num
+              ? (message.data['intensity'] as num).toDouble()
+              : 0.5,
           isStillCurrent: () =>
               isConnected &&
               !_backgrounded &&
-              _vibrationEnabled &&
+              vibrationEnabled &&
               _generation == eventGeneration,
         ),
       );
+    } else if (message.event == ControllerEvents.haptic) {
+      final event = message.data['event'];
+      final eventGeneration = message.data['generation'] is int
+          ? message.data['generation'] as int
+          : null;
+      if (event is String) {
+        unawaited(
+          _collisionHaptics.playCueForSession(
+            event: event,
+            foreground: isConnected && !_backgrounded && vibrationEnabled,
+            currentGeneration: _generation,
+            eventGeneration: eventGeneration,
+            isStillCurrent: () =>
+                isConnected &&
+                !_backgrounded &&
+                vibrationEnabled &&
+                _generation == eventGeneration,
+          ),
+        );
+      }
     }
     notifyListeners();
   }

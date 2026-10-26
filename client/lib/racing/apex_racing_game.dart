@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult;
 
+import 'audio/race_audio.dart';
 import 'input/car_input.dart';
 import 'graphics/race_effects_component.dart';
 import 'graphics/race_scenery_component.dart';
@@ -52,12 +53,28 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     SprintGraphicsAssets? sprintGraphicsAssets,
     this.onFrameUpdate,
     this.effectsClockAdvances,
+    this.audioPhaseProvider,
+    this.audioEvents,
   }) : super(
          camera: CameraComponent.withFixedResolution(
            width: RaceTrackLayout.worldWidth,
            height: RaceTrackLayout.worldHeight,
          ),
        ) {
+    audioDirector = RaceAudioDirector(
+      simulation: simulation,
+      input: inputSource,
+    );
+    _collisionAudioSubscription = simulation.collisionEvents.listen(
+      audioDirector.collision,
+    );
+    _audioEventSubscription = audioEvents?.listen((event) {
+      audioDirector.phaseEvent(
+        event.event,
+        player: event.player,
+        count: event.count,
+      );
+    });
     final track = sprintTrack;
     final supportsRaceGraphics = track != null || lapTrack != null;
     _graphicsAssets = supportsRaceGraphics
@@ -95,6 +112,8 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
           .map((wall) => wall.$2)
           .toList(growable: false),
       enabled: !supportsRaceGraphics,
+      onEdgeGrit: (player, speed) =>
+          audioDirector.edgeGrit(player: player, speed: speed),
     );
     _redCarComponent = CarComponent(
       state: simulation.red,
@@ -164,6 +183,11 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   int _cameraResetRevision = -1;
   final void Function(double frameSeconds)? onFrameUpdate;
   final bool Function()? effectsClockAdvances;
+  final RaceAudioPhase Function()? audioPhaseProvider;
+  final Stream<RaceFeedbackEvent>? audioEvents;
+  late final RaceAudioDirector audioDirector;
+  late final StreamSubscription<CollisionEvent> _collisionAudioSubscription;
+  late final StreamSubscription<RaceFeedbackEvent>? _audioEventSubscription;
   double _snapshotElapsed = 0;
 
   bool setGraphicsStyle(SprintGraphicsStyle style) {
@@ -261,6 +285,9 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
 
   @override
   void onRemove() {
+    unawaited(_collisionAudioSubscription.cancel());
+    unawaited(_audioEventSubscription?.cancel() ?? Future<void>.value());
+    audioDirector.dispose();
     _surfaceTextures?.dispose();
     super.onRemove();
   }
@@ -273,6 +300,10 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     } else {
       frameUpdate(dt);
     }
+    final phase =
+        audioPhaseProvider?.call() ??
+        (simulation.isRunning ? RaceAudioPhase.racing : RaceAudioPhase.ready);
+    audioDirector.update(dt, phase);
     _raceEffects.clockAdvances =
         effectsClockAdvances?.call() ?? simulation.isRunning;
     simulation.updateRenderPoses();

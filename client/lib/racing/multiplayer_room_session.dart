@@ -203,7 +203,7 @@ class MultiplayerRoomSession extends ChangeNotifier {
     return true;
   }
 
-  void sendCollision(String slotId) {
+  void sendCollision(String slotId, {double intensity = 0.5}) {
     final slot = _slots[slotId];
     if (slot == null ||
         slot.source != 'phone' ||
@@ -216,6 +216,25 @@ class MultiplayerRoomSession extends ChangeNotifier {
       'roomId': _roomId,
       'slotId': slotId,
       'generation': slot.generation,
+      'intensity': intensity.clamp(0.0, 1.0),
+    });
+  }
+
+  void sendHaptic(String slotId, String event) {
+    final slot = _slots[slotId];
+    if (slot == null ||
+        slot.source != 'phone' ||
+        !slot.connected ||
+        slot.generation == null ||
+        !isConnected ||
+        !ControllerEvents.isHapticCue(event)) {
+      return;
+    }
+    _connection.send(ControllerEvents.haptic, {
+      'roomId': _roomId,
+      'slotId': slotId,
+      'generation': slot.generation,
+      'event': event,
     });
   }
 

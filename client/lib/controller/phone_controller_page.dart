@@ -340,13 +340,13 @@ class _PhoneControllerPageState extends State<PhoneControllerPage> {
                         const SizedBox(width: 8),
                         Tooltip(
                           message: _controller.vibrationEnabled
-                              ? 'Tắt rung khi va chạm'
-                              : 'Bật rung khi va chạm',
+                              ? 'Tắt phản hồi rung'
+                              : 'Bật phản hồi rung',
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Text(
-                                'Rung va chạm',
+                                'Rung sự kiện',
                                 style: TextStyle(
                                   color: Color(0xFFABB6AC),
                                   fontSize: 10,

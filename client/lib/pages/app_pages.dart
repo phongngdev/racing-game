@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../auth/session_user.dart';
+import '../racing/audio/race_audio.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key, required this.onPlay});
@@ -212,6 +213,8 @@ class SettingsPage extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(height: 24),
+        const RaceAudioSettingsPanel(),
         const SizedBox(height: 24),
         if (onOpenPhoneController != null) ...[
           Text('Tay cầm', style: Theme.of(context).textTheme.titleLarge),

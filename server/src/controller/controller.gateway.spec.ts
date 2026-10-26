@@ -121,6 +121,32 @@ describe('ControllerGateway', () => {
     expect(second.closeCode).toBe(1008);
   });
 
+  it('routes current-generation haptics and clamps collision intensity', () => {
+    const gateway = new ControllerGateway();
+    const phone = socket();
+    const game = socket();
+    gateway.onRegister(phone, { role: 'phone', version: 1 });
+    const generation = messages(phone)[0]?.data.generation as number;
+    gateway.onRegister(game, { role: 'game', version: 1 });
+
+    gateway.onCollision(game, { generation, intensity: 1.4 });
+    expect(messages(phone).at(-1)).toEqual({
+      event: 'collision',
+      data: { generation, intensity: 1 },
+    });
+    const afterCollision = phone.sent.length;
+    gateway.onHaptic(game, { generation: generation + 1, event: 'go' });
+    gateway.onHaptic(phone, { generation, event: 'go' });
+    expect(phone.sent).toHaveLength(afterCollision);
+    gateway.onHaptic(game, { generation, event: 'go' });
+    expect(messages(phone).at(-1)).toEqual({
+      event: 'haptic',
+      data: { generation, event: 'go' },
+    });
+    gateway.onHaptic(game, { generation, event: 'impact' });
+    expect(phone.sent).toHaveLength(afterCollision + 1);
+  });
+
   it('creates an isolated v2 session and accepts only its paired phone', () => {
     const gateway = new ControllerGateway();
     const game = socket();
@@ -182,6 +208,14 @@ describe('ControllerGateway', () => {
         generation: 1,
       },
     });
+    gateway.onHaptic(game, {
+      generation: phoneRegistration?.data.generation,
+      event: 'finish',
+    });
+    expect(messages(phone).at(-1)).toEqual({
+      event: 'haptic',
+      data: { generation: phoneRegistration?.data.generation, event: 'finish' },
+    });
   });
 
   it('routes v3 input only from the phone socket currently owning its room slot', () => {
@@ -237,6 +271,30 @@ describe('ControllerGateway', () => {
     gateway.onInput(phone, { ...input, slotId: 'p2', seq: 1 });
     gateway.onInput(otherPhone, { ...input, seq: 1 });
     expect(game.sent).toHaveLength(count);
+
+    gateway.onHaptic(game, {
+      roomId: registration?.roomId,
+      slotId: 'p1',
+      generation: phoneRegistration?.generation,
+      event: 'go',
+    });
+    expect(messages(phone).at(-1)).toEqual({
+      event: 'haptic',
+      data: {
+        roomId: registration?.roomId,
+        slotId: 'p1',
+        generation: phoneRegistration?.generation,
+        event: 'go',
+      },
+    });
+    const hapticCount = phone.sent.length;
+    gateway.onHaptic(game, {
+      roomId: registration?.roomId,
+      slotId: 'p2',
+      generation: phoneRegistration?.generation,
+      event: 'go',
+    });
+    expect(phone.sent).toHaveLength(hapticCount);
 
     gateway.onSlotLeave(phone, {
       roomId: registration?.roomId,

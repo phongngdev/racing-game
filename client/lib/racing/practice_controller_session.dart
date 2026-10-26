@@ -256,10 +256,26 @@ class PracticeControllerSession extends ChangeNotifier {
     _ => PracticeControllerState.checking,
   };
 
-  void sendCollision() {
+  void sendCollision({double intensity = 0.5}) {
     final generation = _generation;
     if (!_ended && _phoneConnected && generation != null) {
-      _connection.send(ControllerEvents.collision, {'generation': generation});
+      _connection.send(ControllerEvents.collision, {
+        'generation': generation,
+        'intensity': intensity.clamp(0.0, 1.0),
+      });
+    }
+  }
+
+  void sendHaptic(String event) {
+    final generation = _generation;
+    if (!_ended &&
+        _phoneConnected &&
+        generation != null &&
+        ControllerEvents.isHapticCue(event)) {
+      _connection.send(ControllerEvents.haptic, {
+        'generation': generation,
+        'event': event,
+      });
     }
   }
 

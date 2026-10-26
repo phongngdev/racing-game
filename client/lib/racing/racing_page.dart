@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'apex_racing_game.dart';
+import 'audio/race_audio.dart';
 import '../controller/controller_config.dart';
 import '../controller/controller_connection.dart';
 import '../controller/controller_protocol.dart';
@@ -83,6 +84,8 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
       inputSource: _input,
       snapshot: _snapshot,
       onKeyboardEvent: _handleKeyEvent,
+      audioPhaseProvider: () =>
+          _simulation.isRunning ? RaceAudioPhase.racing : RaceAudioPhase.ready,
     );
     _focusNode.addListener(_handleFocusChange);
     if (widget.isPractice) {
@@ -202,6 +205,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
 
   void _handleCollision(CollisionEvent event) {
     if (!event.players.contains(PlayerId.red) ||
+        !AudioSettingsController.shared.vibration ||
         !_simulation.isRunning ||
         _input.mode != RacingInputMode.phone ||
         !_remote.hasFreshInput ||
@@ -215,10 +219,11 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
     );
     final session = widget.practiceSession;
     if (session != null) {
-      session.sendCollision();
+      session.sendCollision(intensity: event.intensity);
     } else {
       _connection?.send(ControllerEvents.collision, {
         'generation': _remote.generation,
+        'intensity': event.intensity,
       });
     }
   }
@@ -328,7 +333,21 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
         return;
       }
       _controllerError = '';
+      unawaited(_game.audioDirector.unlock());
+      _game.audioDirector.phaseEvent('go');
+      final generation = _remote.generation;
+      if (AudioSettingsController.shared.vibration && generation != null) {
+        if (widget.practiceSession case final session?) {
+          session.sendHaptic('go');
+        } else if (_connection?.isConnected == true) {
+          _connection?.send(ControllerEvents.haptic, {
+            'generation': generation,
+            'event': 'go',
+          });
+        }
+      }
       _simulation.setRunning(true);
+      _game.audioDirector.phaseEvent('go');
       _focusNode.requestFocus();
       setState(() {});
     }
@@ -492,6 +511,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
         ],
       ),
       const Spacer(),
+      const RaceAudioSettingsButton(),
       if (wide)
         Text(
           widget.isPractice
