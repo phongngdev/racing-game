@@ -1,9 +1,12 @@
 import '../input/car_input.dart';
 import 'lap_race_track.dart';
+import '../race_progress.dart';
+export '../race_progress.dart' show RacePlayerStatus;
 
-enum LapPlayerStatus { racing, finished, dnf }
+typedef LapPlayerStatus = RacePlayerStatus;
+typedef LapProgressEvent = RaceProgressEvent;
 
-class LapPlayerProgress {
+class LapPlayerProgress implements RacePlayerProgress {
   LapPlayerProgress({
     required this.player,
     required this.lapCount,
@@ -15,35 +18,23 @@ class LapPlayerProgress {
     required this.status,
   }) : lapTimes = List.unmodifiable(lapTimes);
 
+  @override
   final PlayerId player;
   final int lapCount;
   final int completedLaps;
+  @override
   final String? nextGateId;
   final double currentLapElapsed;
   final List<double> lapTimes;
+  @override
   final double? finishTime;
+  @override
   final LapPlayerStatus status;
 
   int get lapNumber => completedLaps >= lapCount ? lapCount : completedLaps + 1;
 }
 
-class LapProgressEvent {
-  const LapProgressEvent({
-    required this.gateId,
-    required this.eventTime,
-    this.completedLap,
-    this.finished = false,
-    this.invalidatedProgress = false,
-  });
-
-  final String gateId;
-  final double eventTime;
-  final int? completedLap;
-  final bool finished;
-  final bool invalidatedProgress;
-}
-
-class LapPlayerTracker {
+class LapPlayerTracker implements RacePlayerTracker<LapPlayerProgress> {
   LapPlayerTracker({
     required this.player,
     this.track = LapRaceTrack.standard,
@@ -65,6 +56,7 @@ class LapPlayerTracker {
   LapPlayerStatus _status = LapPlayerStatus.racing;
   bool _expectedGateArmed = false;
 
+  @override
   LapPlayerProgress progressAt(double raceTime) => LapPlayerProgress(
     player: player,
     lapCount: lapCount,
@@ -80,6 +72,7 @@ class LapPlayerTracker {
     status: _status,
   );
 
+  @override
   void reset({double raceStartTime = 0}) {
     _acceptedCheckpointIndexes.clear();
     _lapTimes.clear();
@@ -90,6 +83,7 @@ class LapPlayerTracker {
     _expectedGateArmed = false;
   }
 
+  @override
   void markDnf({bool revokeFinish = false}) {
     if (_status == LapPlayerStatus.finished && !revokeFinish) return;
     if (revokeFinish && _status == LapPlayerStatus.finished) {
@@ -99,6 +93,7 @@ class LapPlayerTracker {
     _status = LapPlayerStatus.dnf;
   }
 
+  @override
   LapProgressEvent? advanceSegment({
     required TrackPoint from,
     required TrackPoint to,

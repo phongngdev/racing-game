@@ -6,16 +6,21 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../controller/controller_config.dart';
 import '../controller/pairing_payload.dart';
 import '../racing/multiplayer_room_session.dart';
+import '../racing/race_mode.dart';
+import '../racing/race_mode_selector.dart';
 
 class MultiplayerSetupPage extends StatefulWidget {
   const MultiplayerSetupPage({
     super.key,
     required this.onBack,
     required this.onStart,
+    this.sessionFactory,
   });
 
   final VoidCallback onBack;
-  final Future<void> Function(MultiplayerRoomSession session) onStart;
+  final Future<void> Function(MultiplayerRoomSession session, RaceMode mode)
+  onStart;
+  final MultiplayerRoomSession Function(Uri relay)? sessionFactory;
 
   @override
   State<MultiplayerSetupPage> createState() => _MultiplayerSetupPageState();
@@ -27,6 +32,7 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
   String? _error;
   String? _shownQrSlot;
   bool _starting = false;
+  RaceMode _mode = RaceMode.lap;
 
   @override
   void dispose() {
@@ -66,7 +72,9 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
       unawaited(previous.close());
       previous.dispose();
     }
-    final session = MultiplayerRoomSession(relayUrl: relay);
+    final session =
+        widget.sessionFactory?.call(relay) ??
+        MultiplayerRoomSession(relayUrl: relay);
     session.addListener(_changed);
     setState(() {
       _session = session;
@@ -80,7 +88,7 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
     if (session == null || !session.canStart || _starting) return;
     setState(() => _starting = true);
     try {
-      await widget.onStart(session);
+      await widget.onStart(session, _mode);
     } finally {
       if (mounted) setState(() => _starting = false);
     }
@@ -225,6 +233,13 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
                       ),
                       if (_shownQrSlot case final slotId?)
                         _qrCard(session, slotId),
+                      const SizedBox(height: 16),
+                      RaceModeSelector(
+                        mode: _mode,
+                        onChanged: _starting
+                            ? null
+                            : (value) => setState(() => _mode = value),
+                      ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         onPressed: session.canStart && !_starting

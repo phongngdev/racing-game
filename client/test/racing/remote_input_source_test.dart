@@ -121,6 +121,13 @@ void main() {
     remote.accept(
       sequence: 0,
       generation: 4,
+      steering: 0,
+      throttle: 0,
+      brake: 0,
+    );
+    remote.accept(
+      sequence: 1,
+      generation: 4,
       steering: 0.2,
       throttle: 1,
       brake: 0,
@@ -132,7 +139,7 @@ void main() {
     expect(remote.inputFor(PlayerId.blue).throttle, 0);
     expect(
       remote.accept(
-        sequence: 1,
+        sequence: 2,
         generation: 4,
         steering: 0.2,
         throttle: 1,
@@ -144,7 +151,7 @@ void main() {
     expect(remote.readyToStart, isFalse);
     expect(
       remote.accept(
-        sequence: 2,
+        sequence: 3,
         generation: 4,
         steering: 0,
         throttle: 0,

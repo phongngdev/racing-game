@@ -56,7 +56,7 @@ void main() {
     await _tap(tester, find.text('Chơi').first);
     expect(find.text('Practice'), findsOneWidget);
     expect(find.text('Multiplayer'), findsOneWidget);
-    expect(find.text('Sắp ra mắt'), findsOneWidget);
+    expect(find.text('Sắp ra mắt'), findsNothing);
     expect(find.byType(RacingPage, skipOffstage: false), findsNothing);
     expect(find.text('Bắt đầu đua'), findsNothing);
 

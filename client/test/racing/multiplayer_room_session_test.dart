@@ -44,6 +44,9 @@ void main() {
             'source': 'phone',
             'connected': false,
             'stage': 'lost',
+            'inviteExpiresAt': DateTime.now()
+                .add(const Duration(minutes: 5))
+                .millisecondsSinceEpoch,
           },
           {
             'slotId': 'p2',

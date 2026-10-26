@@ -13,12 +13,25 @@ import 'lap/lap_race_session.dart';
 import 'lap/lap_race_track.dart';
 import 'multiplayer_room_session.dart';
 import 'simulation/race_simulation.dart';
+import 'race_mode.dart';
+import 'race_session.dart';
+import 'race_progress.dart';
+import 'tracks/track_definition.dart';
+import 'sprint/sprint_race_session.dart';
+import 'sprint/sprint_player_tracker.dart';
+import 'sprint/sprint_camera.dart';
 
 class MultiplayerRacePage extends StatefulWidget {
-  const MultiplayerRacePage({super.key, required this.session, this.onBack});
+  const MultiplayerRacePage({
+    super.key,
+    required this.session,
+    this.onBack,
+    this.mode = RaceMode.lap,
+  });
 
   final MultiplayerRoomSession session;
   final VoidCallback? onBack;
+  final RaceMode mode;
 
   @override
   State<MultiplayerRacePage> createState() => _MultiplayerRacePageState();
@@ -32,7 +45,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   final _pageFocusNode = FocusNode(debugLabel: 'Apex RC multiplayer page');
   late final RaceSimulation _simulation;
   late final MultiplayerInputSource _input;
-  late final LapRaceSession _race;
+  late final RaceSession<RacePlayerProgress> _race;
   late final ApexRacingGame _game;
   StreamSubscription<CollisionEvent>? _collisions;
   Timer? _refreshTimer;
@@ -59,29 +72,47 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _simulation = RaceSimulation(
-      redStartPosition: Vector2(_track.redGrid.x, _track.redGrid.y),
-      blueStartPosition: Vector2(_track.blueGrid.x, _track.blueGrid.y),
+      track: widget.mode == RaceMode.sprint ? FixedTracks.sprint : null,
+      redStartPosition: widget.mode == RaceMode.lap
+          ? Vector2(_track.redGrid.x, _track.redGrid.y)
+          : null,
+      blueStartPosition: widget.mode == RaceMode.lap
+          ? Vector2(_track.blueGrid.x, _track.blueGrid.y)
+          : null,
     );
     _input = MultiplayerInputSource(
       keyboard: _keyboard,
       phoneInputFor: widget.session.remoteFor,
     );
     _applySources();
-    _race = LapRaceSession(
-      simulation: _simulation,
-      inputSource: _input,
-      canStart: () => widget.session.canStart,
-      controllersAvailable: _controllersAvailable,
-      clearInputs: _input.clear,
-      setGameRunning: widget.session.setGameRunning,
-    );
+    _race = widget.mode == RaceMode.sprint
+        ? SprintRaceSession(
+            simulation: _simulation,
+            inputSource: _input,
+            canStart: () => widget.session.canStart,
+            controllersAvailable: _controllersAvailable,
+            clearInputs: _input.clear,
+            setGameRunning: widget.session.setGameRunning,
+            track: FixedTracks.sprint,
+          )
+        : LapRaceSession(
+            simulation: _simulation,
+            inputSource: _input,
+            canStart: () => widget.session.canStart,
+            controllersAvailable: _controllersAvailable,
+            clearInputs: _input.clear,
+            setGameRunning: widget.session.setGameRunning,
+          );
     _game = ApexRacingGame(
       simulation: _simulation,
       inputSource: _input,
       snapshot: _snapshot,
       onKeyboardEvent: _handleKeyEvent,
-      lapTrack: _track,
-      onFrameUpdate: _race.advanceFrame,
+      lapTrack: widget.mode == RaceMode.lap ? _track : null,
+      sprintTrack: widget.mode == RaceMode.sprint ? FixedTracks.sprint : null,
+      // Sprint HUD refreshes via the existing 100 ms timer; physics still runs every frame.
+      onFrameUpdate: (dt) =>
+          _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
     );
     _focusNode.addListener(_focusChanged);
     widget.session.addListener(_sessionChanged);
@@ -304,9 +335,9 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                         color: Colors.white,
                       ),
                     ),
-                    const Text(
-                      'LAP RACE',
-                      style: TextStyle(
+                    Text(
+                      widget.mode.label.toUpperCase(),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
@@ -342,6 +373,8 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                                 backgroundBuilder: (_) =>
                                     const ColoredBox(color: Color(0xFF193323)),
                               ),
+                              if (widget.mode == RaceMode.sprint)
+                                _sprintPaneLabels(),
                               if (_race.phase == LapRacePhase.countdown ||
                                   (_race.phase == LapRacePhase.racing &&
                                       _race.showGo) ||
@@ -535,7 +568,9 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   );
 
   Widget _progressPanel(PlayerId player) {
-    final progress = _race.progressFor(player);
+    final current = _race.progressFor(player);
+    if (current is SprintPlayerProgress) return _sprintProgressPanel(current);
+    final progress = current as LapPlayerProgress;
     final red = player == PlayerId.red;
     final color = red ? const Color(0xFFFF696E) : const Color(0xFF68A4FF);
     final gate = progress.nextGateId;
@@ -601,6 +636,85 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       ),
     );
   }
+
+  Widget _sprintProgressPanel(SprintPlayerProgress progress) {
+    final red = progress.player == PlayerId.red;
+    final color = red ? const Color(0xFFFF696E) : const Color(0xFF68A4FF);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1B2620),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${red ? 'P1' : 'P2'} · ${(progress.fraction * 100).floor()}%',
+            style: TextStyle(color: color, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 7),
+          LinearProgressIndicator(
+            value: progress.fraction,
+            color: color,
+            backgroundColor: const Color(0xFF34453A),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            'CP ${progress.completedCheckpoints}/${progress.totalCheckpoints} · '
+            '${progress.status == RacePlayerStatus.finished
+                ? 'FINISH'
+                : progress.status == RacePlayerStatus.dnf
+                ? 'DNF'
+                : progress.nextGateId == 'finish'
+                ? 'Tiếp theo: Đích'
+                : 'Tiếp theo: ${progress.nextGateId?.toUpperCase()}'}',
+            style: const TextStyle(color: Color(0xFFB6C1B9), fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sprintPaneLabels() => Positioned.fill(
+    child: IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final panes = sprintViewports(
+            constraints.maxWidth,
+            constraints.maxHeight,
+          );
+          return Stack(
+            children: [
+              for (var i = 0; i < panes.length; i++)
+                Positioned(
+                  left: panes[i].left + 8,
+                  top: panes[i].top + 8,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xCC111916),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(7),
+                      child: Text(
+                        'P${i + 1} · ${_race.progressFor(i == 0 ? PlayerId.red : PlayerId.blue).status == RacePlayerStatus.finished ? 'FINISH' : 'SPRINT'}',
+                        style: TextStyle(
+                          color: i == 0
+                              ? const Color(0xFFFF696E)
+                              : const Color(0xFF68A4FF),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
 
   Widget _raceClockPanel() => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -766,7 +880,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  '${red ? 'P1 · Xe đỏ' : 'P2 · Xe xanh'}\n${progress.completedLaps}/${progress.lapCount} vòng',
+                  '${red ? 'P1 · Xe đỏ' : 'P2 · Xe xanh'}\n${progress is LapPlayerProgress ? '${progress.completedLaps}/${progress.lapCount} vòng' : '${(progress as SprintPlayerProgress).completedCheckpoints}/${progress.totalCheckpoints} checkpoint'}',
                   style: const TextStyle(color: Colors.white, height: 1.5),
                 ),
               ),
@@ -777,7 +891,8 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
               ),
             ],
           ),
-          if (progress.lapTimes.isNotEmpty) ...[
+          if (progress is LapPlayerProgress &&
+              progress.lapTimes.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
               progress.lapTimes

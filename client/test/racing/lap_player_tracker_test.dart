@@ -138,12 +138,8 @@ void main() {
   );
 
   test('ordered forward route counts laps and interpolates finish time', () {
-    final tracker = LapPlayerTracker(
-      player: PlayerId.blue,
-      track: track,
-      lapCount: 2,
-    );
-    for (var lap = 0; lap < 2; lap++) {
+    final tracker = LapPlayerTracker(player: PlayerId.blue, track: track);
+    for (var lap = 0; lap < 3; lap++) {
       final start = lap * 4.0;
       cross(
         tracker,
@@ -177,11 +173,11 @@ void main() {
       expect(finish?.eventTime, closeTo(start + 3.5, 1e-9));
     }
 
-    final progress = tracker.progressAt(8);
-    expect(progress.completedLaps, 2);
+    final progress = tracker.progressAt(12);
+    expect(progress.completedLaps, 3);
     expect(progress.status, LapPlayerStatus.finished);
-    expect(progress.lapTimes, [3.5, 4]);
-    expect(progress.finishTime, closeTo(7.5, 1e-9));
+    expect(progress.lapTimes, [3.5, 4, 4]);
+    expect(progress.finishTime, closeTo(11.5, 1e-9));
   });
 
   test('finish and DNF are terminal states', () {
