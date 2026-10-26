@@ -5,6 +5,7 @@ import 'dart:ui' show Rect;
 import 'package:flame/components.dart';
 
 import '../input/car_input.dart';
+import '../tracks/track_definition.dart';
 
 class RaceTrackLayout {
   static const worldWidth = 960.0;
@@ -106,20 +107,44 @@ class _DirectionTransition {
 class RaceSimulation {
   RaceSimulation({
     this.config = const RaceConfig(),
+    this.track,
     Vector2? redStartPosition,
     Vector2? blueStartPosition,
-  }) : _redStart = redStartPosition?.clone() ?? Vector2(150, 112),
-       _blueStart = blueStartPosition?.clone() ?? Vector2(150, 166),
+  }) : _redStart =
+           redStartPosition?.clone() ??
+           Vector2(
+             track?.redSpawn.position.x ?? 150,
+             track?.redSpawn.position.y ?? 112,
+           ),
+       _blueStart =
+           blueStartPosition?.clone() ??
+           Vector2(
+             track?.blueSpawn.position.x ?? 150,
+             track?.blueSpawn.position.y ?? 166,
+           ),
        red = CarState(
          player: PlayerId.red,
-         position: redStartPosition?.clone() ?? Vector2(150, 112),
+         position:
+             redStartPosition?.clone() ??
+             Vector2(
+               track?.redSpawn.position.x ?? 150,
+               track?.redSpawn.position.y ?? 112,
+             ),
+         heading: track?.redSpawn.heading ?? 0,
        ),
        blue = CarState(
          player: PlayerId.blue,
-         position: blueStartPosition?.clone() ?? Vector2(150, 166),
+         position:
+             blueStartPosition?.clone() ??
+             Vector2(
+               track?.blueSpawn.position.x ?? 150,
+               track?.blueSpawn.position.y ?? 166,
+             ),
+         heading: track?.blueSpawn.heading ?? 0,
        );
 
   final RaceConfig config;
+  final TrackDefinition? track;
   final Vector2 _redStart;
   final Vector2 _blueStart;
   final CarState red;
@@ -132,6 +157,8 @@ class RaceSimulation {
   final Set<PlayerId> _finishedPlayers = {};
   double _accumulator = 0;
   bool isRunning = false;
+  int _resetRevision = 0;
+  int get resetRevision => _resetRevision;
 
   bool isPlayerFinished(PlayerId player) => _finishedPlayers.contains(player);
 
@@ -154,12 +181,13 @@ class RaceSimulation {
   }
 
   void reset() {
+    _resetRevision++;
     red.position.setFrom(_redStart);
     red.stop();
-    red.heading = 0;
+    red.heading = track?.redSpawn.heading ?? 0;
     blue.position.setFrom(_blueStart);
     blue.stop();
-    blue.heading = 0;
+    blue.heading = track?.blueSpawn.heading ?? 0;
     _accumulator = 0;
     _activeContacts.clear();
     _directionTransitions.clear();
@@ -265,7 +293,7 @@ class RaceSimulation {
 
   void _resolveWallContacts(CarState car, Set<String> contacts) {
     final radius = config.vehicleRadius;
-    for (final wall in RaceTrackLayout.walls) {
+    for (final wall in track?.walls ?? RaceTrackLayout.walls) {
       final contact = _circleRectContact(car.position, radius, wall.$2);
       if (contact == null) continue;
       final key = 'wall:${car.player.name}:${wall.$1}';

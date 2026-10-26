@@ -22,6 +22,7 @@ import 'controller/room_pairing_payload.dart';
 import 'racing/practice_controller_session.dart';
 import 'racing/multiplayer_room_session.dart';
 import 'racing/multiplayer_race_page.dart';
+import 'racing/race_mode.dart';
 import 'racing/racing_page.dart';
 
 void main() => runApp(const MyApp());
@@ -392,7 +393,8 @@ class _DemoShellState extends State<DemoShell> {
           settings: const RouteSettings(name: '/multiplayer/lobby'),
           builder: (_) => MultiplayerSetupPage(
             onBack: () => navigator.pop(),
-            onStart: (session) => _openMultiplayerGame(navigator, session),
+            onStart: (session, mode) =>
+                _openMultiplayerGame(navigator, session, mode),
           ),
         ),
       );
@@ -404,6 +406,7 @@ class _DemoShellState extends State<DemoShell> {
   Future<void> _openMultiplayerGame(
     NavigatorState navigator,
     MultiplayerRoomSession session,
+    RaceMode mode,
   ) async {
     if (_multiplayerGameOpen) return;
     _multiplayerGameOpen = true;
@@ -413,6 +416,7 @@ class _DemoShellState extends State<DemoShell> {
           settings: const RouteSettings(name: '/multiplayer/game'),
           builder: (_) => MultiplayerRacePage(
             session: session,
+            mode: mode,
             onBack: () => navigator.pop(),
           ),
         ),

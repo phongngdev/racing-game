@@ -68,6 +68,7 @@ void main() {
     expect(race.startCountdown(), isTrue);
     race.advanceFrame(1);
     fixture.controllersAvailable = false;
+    fixture.canStart = false;
     race.advanceFrame(1 / 60);
 
     expect(race.phase, LapRacePhase.ready);

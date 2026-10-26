@@ -1,6 +1,7 @@
 import 'dart:ui' show Canvas, Color, Paint, PaintingStyle, Rect;
 
 import 'package:flame/components.dart';
+import 'package:flame/camera.dart';
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,9 @@ import 'package:flutter/widgets.dart' show KeyEventResult;
 import 'input/car_input.dart';
 import 'lap/lap_race_track.dart';
 import 'simulation/race_simulation.dart';
+import 'tracks/track_definition.dart';
+import 'sprint/sprint_camera.dart';
+import 'sprint/sprint_track_component.dart';
 
 class RaceSnapshot {
   const RaceSnapshot({this.redSpeed = 0, this.blueSpeed = 0});
@@ -25,6 +29,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     required this.snapshot,
     required this.onKeyboardEvent,
     this.lapTrack,
+    this.sprintTrack,
     this.onFrameUpdate,
   }) : super(
          camera: CameraComponent.withFixedResolution(
@@ -37,7 +42,10 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
       RaceTrackLayout.worldHeight / 2,
     );
     world.addAll([
-      TrackComponent(lapTrack: lapTrack),
+      if (sprintTrack case final track?)
+        SprintTrackComponent(track)
+      else
+        TrackComponent(lapTrack: lapTrack),
       CarComponent(
         state: simulation.red,
         color: const Color(0xFFE34B50),
@@ -49,6 +57,15 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
         isFinished: () => simulation.isPlayerFinished(PlayerId.blue),
       ),
     ]);
+    if (sprintTrack case final track?) {
+      camera.viewport = FixedSizeViewport(1, 1);
+      _secondCamera = CameraComponent(
+        world: world,
+        viewport: FixedSizeViewport(1, 1),
+      );
+      add(_secondCamera!);
+      _cameraRigs = [SprintCameraRig(track), SprintCameraRig(track)];
+    }
   }
 
   final RaceSimulation simulation;
@@ -56,8 +73,50 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   final ValueNotifier<RaceSnapshot> snapshot;
   final KeyEventResult Function(KeyEvent event) onKeyboardEvent;
   final LapRaceTrack? lapTrack;
+  final TrackDefinition? sprintTrack;
+  CameraComponent? _secondCamera;
+  List<SprintCameraRig> _cameraRigs = [];
+  int _cameraResetRevision = -1;
   final void Function(double frameSeconds)? onFrameUpdate;
   double _snapshotElapsed = 0;
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    if (_secondCamera == null) return;
+    final panes = sprintViewports(size.x, size.y);
+    if (panes.length != 2) return;
+    final cameras = [camera, _secondCamera!];
+    final cars = [simulation.red, simulation.blue];
+    for (var i = 0; i < 2; i++) {
+      final pane = panes[i];
+      cameras[i].viewport.size = Vector2(pane.width, pane.height);
+      cameras[i].viewport.position = Vector2(pane.left, pane.top);
+      _cameraRigs[i].resize(pane.width, pane.height);
+      _cameraRigs[i].snap(cars[i]);
+      cameras[i].viewfinder.zoom = _cameraRigs[i].zoom;
+      cameras[i].viewfinder.position = _cameraRigs[i].position;
+    }
+  }
+
+  void _updateCameras(double dt) {
+    if (_secondCamera == null) return;
+    final cameras = [camera, _secondCamera!];
+    final cars = [simulation.red, simulation.blue];
+    for (var i = 0; i < 2; i++) {
+      final rig = _cameraRigs[i];
+      if (_cameraResetRevision != simulation.resetRevision) rig.snap(cars[i]);
+      rig.update(
+        dt,
+        cars[i],
+        running: simulation.isRunning,
+        finished: simulation.isPlayerFinished(cars[i].player),
+      );
+      cameras[i].viewfinder.position = rig.position;
+      cameras[i].viewfinder.zoom = rig.zoom;
+    }
+    _cameraResetRevision = simulation.resetRevision;
+  }
 
   @override
   KeyEventResult onKeyEvent(
@@ -77,6 +136,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     } else {
       frameUpdate(dt);
     }
+    _updateCameras(dt);
     _snapshotElapsed += dt;
     if (_snapshotElapsed >= 0.1) {
       _snapshotElapsed %= 0.1;
@@ -239,6 +299,17 @@ class CarComponent extends Component {
 
   @override
   void render(Canvas canvas) {
+    final visible = CameraComponent.currentCamera?.visibleWorldRect;
+    if (visible != null &&
+        !visible.overlaps(
+          Rect.fromCenter(
+            center: Offset(state.position.x, state.position.y),
+            width: 60,
+            height: 60,
+          ),
+        )) {
+      return;
+    }
     canvas.save();
     canvas.translate(state.position.x, state.position.y);
     canvas.rotate(state.heading);

@@ -29,8 +29,9 @@ void main() {
       const TrackPoint(170, 310),
     ];
 
-    for (var i = 0; i < track.orderedLapGates.length; i++) {
-      final gate = track.orderedLapGates[i];
+    final gates = [track.finish, ...track.checkpoints];
+    for (var i = 0; i < gates.length; i++) {
+      final gate = gates[i];
       final crossing = gate.crossing(from[i], to[i], forward: true);
       expect(crossing, isNotNull, reason: gate.id);
       expect(crossing!.t, closeTo(0.5, 1e-9), reason: gate.id);
