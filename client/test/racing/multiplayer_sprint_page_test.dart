@@ -1,10 +1,12 @@
 import 'package:flame/game.dart';
+import 'package:flame/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/pages/multiplayer_setup_page.dart';
 import 'package:racing_client/racing/apex_racing_game.dart';
 import 'package:racing_client/racing/multiplayer_race_page.dart';
 import 'package:racing_client/racing/race_mode.dart';
+import 'package:racing_client/racing/sprint/sprint_graphics_assets.dart';
 import 'package:racing_client/racing/tracks/track_definition.dart';
 import 'package:racing_client/racing/tracks/sprint_track_generator.dart';
 
@@ -74,6 +76,77 @@ void main() {
   );
 
   testWidgets(
+    'Fixed Sprint graphics A/B keeps race and camera state unchanged',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final fixture = RoomFixture();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MultiplayerRacePage(
+            session: fixture.session,
+            mode: RaceMode.sprint,
+            sprintTrack: FixedTracks.sprint,
+          ),
+        ),
+      );
+      final game = tester
+          .widget<GameWidget<ApexRacingGame>>(
+            find.byType(GameWidget<ApexRacingGame>),
+          )
+          .game!;
+      await tester.runAsync(() async {
+        await game.loaded;
+        await game.ready();
+      });
+      game.pauseEngine();
+      expect(game.supportsKenneyGraphics, isTrue);
+      expect(find.text('Legacy'), findsOneWidget);
+      expect(find.text('Kenney'), findsOneWidget);
+
+      final red = game.simulation.red;
+      red.position.setValues(550, 1750);
+      red.heading = 0.72;
+      red.driveSpeed = 123;
+      red.syncVelocity();
+      game.simulation.setRunning(true);
+      final position = red.position.clone();
+      final heading = red.heading;
+      final speed = red.driveSpeed;
+      final velocity = red.velocity.clone();
+      final resetRevision = game.simulation.resetRevision;
+      final redCameraPosition = game.camera.viewfinder.position.clone();
+      final cameras = game.children.whereType<CameraComponent>().toList();
+      final blueCamera = cameras.singleWhere(
+        (camera) => !identical(camera, game.camera),
+      );
+      final blueCameraPosition = blueCamera.viewfinder.position.clone();
+
+      await tester.tap(find.text('Kenney'));
+      await tester.pump();
+      expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+      await tester.tap(find.text('Legacy'));
+      await tester.pump();
+      expect(game.graphicsStyle, SprintGraphicsStyle.legacy);
+      expect(red.position, position);
+      expect(red.heading, heading);
+      expect(red.driveSpeed, speed);
+      expect(red.velocity, velocity);
+      expect(game.simulation.resetRevision, resetRevision);
+      expect(game.simulation.isRunning, isTrue);
+      expect(game.camera.viewfinder.position, redCameraPosition);
+      expect(blueCamera.viewfinder.position, blueCameraPosition);
+      expect(game.children.whereType<CameraComponent>(), hasLength(2));
+      expect(fixture.connection.sentEvents, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      fixture.session.dispose();
+    },
+  );
+
+  testWidgets(
     'Sprint HUD, Pause Restart, Results and Rematch keep the same room',
     (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
@@ -106,6 +179,7 @@ void main() {
       expect(identical(game.simulation.track, generatedTrack), isTrue);
       expect(identical(game.sprintTrack, generatedTrack), isTrue);
       expect(find.text('SPRINT RACE'), findsOneWidget);
+      expect(find.text('Kenney'), findsNothing);
       expect(
         find.textContaining('CP 0/${generatedTrack.checkpoints.length}'),
         findsNWidgets(2),

@@ -1,4 +1,15 @@
-import 'dart:ui' show Canvas, Color, Paint, PaintingStyle, Rect;
+import 'dart:math' as math;
+import 'dart:ui'
+    show
+        Canvas,
+        Color,
+        FilterQuality,
+        Offset,
+        Paint,
+        PaintingStyle,
+        Radius,
+        Rect,
+        RRect;
 
 import 'package:flame/components.dart';
 import 'package:flame/camera.dart';
@@ -13,6 +24,7 @@ import 'lap/lap_race_track.dart';
 import 'simulation/race_simulation.dart';
 import 'tracks/track_definition.dart';
 import 'sprint/sprint_camera.dart';
+import 'sprint/sprint_graphics_assets.dart';
 import 'sprint/sprint_track_component.dart';
 
 class RaceSnapshot {
@@ -37,25 +49,44 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
            height: RaceTrackLayout.worldHeight,
          ),
        ) {
+    final track = sprintTrack;
+    final usesFixedSprint =
+        track != null && identical(track, FixedTracks.sprint);
+    _graphicsAssets = usesFixedSprint ? SprintGraphicsAssets() : null;
     camera.viewfinder.position = Vector2(
       RaceTrackLayout.worldWidth / 2,
       RaceTrackLayout.worldHeight / 2,
     );
+    _sprintTrackComponent = track == null
+        ? null
+        : SprintTrackComponent(
+            track,
+            _graphicsAssets,
+            hasKenneyPresentation: usesFixedSprint,
+          );
+    _sceneryComponents = usesFixedSprint
+        ? [SprintSceneryComponent(track, _graphicsAssets!)]
+        : [];
+    _redCarComponent = CarComponent(
+      state: simulation.red,
+      color: const Color(0xFFE34B50),
+      isFinished: () => simulation.isPlayerFinished(PlayerId.red),
+      graphicsAssets: _graphicsAssets,
+    );
+    _blueCarComponent = CarComponent(
+      state: simulation.blue,
+      color: const Color(0xFF4388F5),
+      isFinished: () => simulation.isPlayerFinished(PlayerId.blue),
+      graphicsAssets: _graphicsAssets,
+    );
     world.addAll([
-      if (sprintTrack case final track?)
-        SprintTrackComponent(track)
+      if (_sprintTrackComponent case final component?)
+        component
       else
         TrackComponent(lapTrack: lapTrack),
-      CarComponent(
-        state: simulation.red,
-        color: const Color(0xFFE34B50),
-        isFinished: () => simulation.isPlayerFinished(PlayerId.red),
-      ),
-      CarComponent(
-        state: simulation.blue,
-        color: const Color(0xFF4388F5),
-        isFinished: () => simulation.isPlayerFinished(PlayerId.blue),
-      ),
+      ..._sceneryComponents,
+      _redCarComponent,
+      _blueCarComponent,
     ]);
     if (sprintTrack case final track?) {
       camera.viewport = FixedSizeViewport(1, 1);
@@ -74,11 +105,40 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   final KeyEventResult Function(KeyEvent event) onKeyboardEvent;
   final LapRaceTrack? lapTrack;
   final TrackDefinition? sprintTrack;
+  late final SprintGraphicsAssets? _graphicsAssets;
+  late final SprintTrackComponent? _sprintTrackComponent;
+  late final List<SprintSceneryComponent> _sceneryComponents;
+  late final CarComponent _redCarComponent;
+  late final CarComponent _blueCarComponent;
+  SprintGraphicsStyle _graphicsStyle = SprintGraphicsStyle.legacy;
+  SprintGraphicsStyle get graphicsStyle => _graphicsStyle;
+  bool get supportsKenneyGraphics => _graphicsAssets?.hasCars ?? false;
   CameraComponent? _secondCamera;
   List<SprintCameraRig> _cameraRigs = [];
   int _cameraResetRevision = -1;
   final void Function(double frameSeconds)? onFrameUpdate;
   double _snapshotElapsed = 0;
+
+  bool setSprintGraphicsStyle(SprintGraphicsStyle style) {
+    if (_graphicsAssets == null ||
+        (style == SprintGraphicsStyle.kenney && !supportsKenneyGraphics)) {
+      return false;
+    }
+    _graphicsStyle = style;
+    _sprintTrackComponent!.style = style;
+    for (final component in _sceneryComponents) {
+      component.style = style;
+    }
+    _redCarComponent.style = style;
+    _blueCarComponent.style = style;
+    return true;
+  }
+
+  @override
+  Future<void> onLoad() async {
+    await super.onLoad();
+    await _graphicsAssets?.preload();
+  }
 
   @override
   void onGameResize(Vector2 size) {
@@ -290,11 +350,18 @@ class CarComponent extends Component {
     required this.state,
     required this.color,
     this.isFinished = _neverFinished,
-  });
+    this.graphicsAssets,
+  }) : _spriteKey = state.player == PlayerId.red
+           ? 'vehicles/car_red_1.png'
+           : 'vehicles/car_blue_1.png';
 
   final CarState state;
   final Color color;
   final bool Function() isFinished;
+  final SprintGraphicsAssets? graphicsAssets;
+  final String _spriteKey;
+  SprintGraphicsStyle style = SprintGraphicsStyle.legacy;
+  static final _spritePaint = Paint()..filterQuality = FilterQuality.low;
 
   static bool _neverFinished() => false;
 
@@ -313,6 +380,39 @@ class CarComponent extends Component {
     }
     canvas.save();
     canvas.translate(state.renderPosition.x, state.renderPosition.y);
+    final sprite = style == SprintGraphicsStyle.kenney && graphicsAssets != null
+        ? graphicsAssets![_spriteKey]
+        : null;
+    if (sprite != null) {
+      canvas.rotate(state.renderHeading + math.pi / 2);
+      const height = 38.0;
+      const width = height * 71 / 131;
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: width,
+          height: height,
+        ).shift(const Offset(1, 2)),
+        Paint()..color = const Color(0x66000000),
+      );
+      canvas.drawImageRect(
+        sprite.image,
+        sprite.src,
+        Rect.fromCenter(center: Offset.zero, width: width, height: height),
+        isFinished()
+            ? (_spritePaint..color = const Color(0x70FFFFFF))
+            : (_spritePaint..color = const Color(0xFFFFFFFF)),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: const Offset(0, -6), width: 8, height: 4),
+          const Radius.circular(1),
+        ),
+        Paint()..color = color,
+      );
+      canvas.restore();
+      return;
+    }
     canvas.rotate(state.renderHeading);
 
     canvas.drawRect(

@@ -5,10 +5,21 @@ import 'package:flame/components.dart';
 
 import '../tracks/track_definition.dart';
 import '../tracks/track_geometry.dart';
+import 'sprint_graphics_assets.dart';
 
 class SprintTrackComponent extends Component {
-  SprintTrackComponent(this.track);
+  SprintTrackComponent(
+    this.track,
+    this.assets, {
+    bool hasKenneyPresentation = false,
+  }) : _roadPath = hasKenneyPresentation
+           ? _makeRoadPath(track.roadRects)
+           : Path();
+
   final TrackDefinition track;
+  final SprintGraphicsAssets? assets;
+  final Path _roadPath;
+  SprintGraphicsStyle style = SprintGraphicsStyle.legacy;
   final _grass = Paint()..color = const Color(0xFF24452F);
   final _road = Paint()..color = const Color(0xFF34383C);
   final _line = Paint()
@@ -19,14 +30,49 @@ class SprintTrackComponent extends Component {
   final _checkpoint = Paint()
     ..color = const Color(0x665BD184)
     ..strokeWidth = 4;
+  final _roadOutlineShadow = Paint()
+    ..color = const Color(0xFF171A1B)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 10;
+  final _roadOutline = Paint()
+    ..color = const Color(0xFFE9E2D2)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 7;
+  final _roadKerb = Paint()
+    ..color = const Color(0xFFE95458)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3;
+
+  static Path _makeRoadPath(List<Rect> roads) {
+    final paths = roads.map((road) => Path()..addRect(road)).toList();
+    return paths
+        .skip(1)
+        .fold(
+          paths.first,
+          (combined, next) => Path.combine(PathOperation.union, combined, next),
+        );
+  }
 
   @override
   void render(Canvas canvas) {
     final visible =
         CameraComponent.currentCamera?.visibleWorldRect ?? track.worldBounds;
     canvas.drawRect(visible.intersect(track.worldBounds), _grass);
-    for (final road in track.roadRects) {
-      if (visible.overlaps(road)) canvas.drawRect(road, _road);
+    final visibleRoads = track.roadRects.where(visible.overlaps).isNotEmpty;
+    if (visibleRoads) {
+      if (style == SprintGraphicsStyle.kenney) {
+        canvas.save();
+        canvas.clipRect(visible);
+        canvas.drawPath(_roadPath, _road);
+        canvas.drawPath(_roadPath, _roadOutlineShadow);
+        canvas.drawPath(_roadPath, _roadOutline);
+        canvas.drawPath(_roadPath, _roadKerb);
+        canvas.restore();
+      } else {
+        for (final road in track.roadRects) {
+          if (visible.overlaps(road)) canvas.drawRect(road, _road);
+        }
+      }
     }
     for (var i = 0; i < track.centerline.length - 1; i++) {
       final a = track.centerline[i];
