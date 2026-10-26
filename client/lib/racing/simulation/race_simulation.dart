@@ -47,16 +47,25 @@ class RaceConfig {
 }
 
 class CarState {
-  CarState({required this.player, required this.position, this.heading = 0})
-    : velocity = Vector2.zero();
+  CarState({required this.player, required Vector2 position, this.heading = 0})
+    : position = position,
+      previousPosition = position.clone(),
+      renderPosition = position.clone(),
+      velocity = Vector2.zero(),
+      previousHeading = heading,
+      renderHeading = heading;
 
   final PlayerId player;
   final Vector2 position;
+  final Vector2 previousPosition;
+  final Vector2 renderPosition;
 
   /// Signed speed along the car's heading. Positive is forward, negative reverse.
   double driveSpeed = 0;
   final Vector2 velocity;
   double heading;
+  double previousHeading;
+  double renderHeading;
 
   double get speed => driveSpeed.abs();
 
@@ -70,6 +79,28 @@ class CarState {
   void stop() {
     driveSpeed = 0;
     velocity.setZero();
+  }
+
+  void capturePreviousPose() {
+    previousPosition.setFrom(position);
+    previousHeading = heading;
+  }
+
+  void updateRenderPose(double alpha) {
+    final amount = alpha.clamp(0.0, 1.0).toDouble();
+    renderPosition.setFrom(
+      previousPosition + (position - previousPosition) * amount,
+    );
+    final fullTurn = math.pi * 2;
+    final turn = (heading - previousHeading + math.pi) % fullTurn - math.pi;
+    renderHeading = previousHeading + turn * amount;
+  }
+
+  void snapRenderPose() {
+    previousPosition.setFrom(position);
+    renderPosition.setFrom(position);
+    previousHeading = heading;
+    renderHeading = heading;
   }
 }
 
@@ -175,7 +206,9 @@ class RaceSimulation {
     if (!value) {
       _accumulator = 0;
       red.stop();
+      red.snapRenderPose();
       blue.stop();
+      blue.snapRenderPose();
       _directionTransitions.clear();
     }
   }
@@ -185,9 +218,11 @@ class RaceSimulation {
     red.position.setFrom(_redStart);
     red.stop();
     red.heading = track?.redSpawn.heading ?? 0;
+    red.snapRenderPose();
     blue.position.setFrom(_blueStart);
     blue.stop();
     blue.heading = track?.blueSpawn.heading ?? 0;
+    blue.snapRenderPose();
     _accumulator = 0;
     _activeContacts.clear();
     _directionTransitions.clear();
@@ -207,6 +242,8 @@ class RaceSimulation {
         _accumulator >= config.fixedStep &&
         steps < config.maxSubSteps) {
       _accumulator -= config.fixedStep;
+      red.capturePreviousPose();
+      blue.capturePreviousPose();
       _step(config.fixedStep, inputSource);
       steps++;
       onFixedStep?.call(config.fixedStep);
@@ -214,6 +251,18 @@ class RaceSimulation {
     if (steps == config.maxSubSteps && _accumulator >= config.fixedStep) {
       _accumulator = 0;
     }
+    updateRenderPoses();
+  }
+
+  void updateRenderPoses() {
+    if (!isRunning) {
+      red.snapRenderPose();
+      blue.snapRenderPose();
+      return;
+    }
+    final alpha = (_accumulator / config.fixedStep).clamp(0.0, 1.0).toDouble();
+    red.updateRenderPose(alpha);
+    blue.updateRenderPose(alpha);
   }
 
   void _step(double dt, InputSource inputSource) {

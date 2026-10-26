@@ -88,6 +88,7 @@ class ControllerConnection extends ChangeNotifier {
       notifyListeners();
     } else if (message.event == ControllerEvents.pong) {
       _lastPongMs = _clock.elapsedMilliseconds;
+      return;
     } else if (message.event == ControllerEvents.sessionEnded ||
         message.event == ControllerEvents.roomClosed ||
         message.event == ControllerEvents.slotLeft) {

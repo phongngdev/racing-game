@@ -41,6 +41,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     with WidgetsBindingObserver {
   final _keyboard = KeyboardInputSource();
   final _snapshot = ValueNotifier(const RaceSnapshot());
+  final _hudRevision = ValueNotifier(0);
   final _focusNode = FocusNode(debugLabel: 'Apex RC multiplayer game');
   final _pageFocusNode = FocusNode(debugLabel: 'Apex RC multiplayer page');
   late final RaceSimulation _simulation;
@@ -119,7 +120,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     _race.addListener(_raceChanged);
     _collisions = _simulation.collisionEvents.listen(_handleCollision);
     _refreshTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (mounted) setState(() {});
+      if (mounted) _hudRevision.value++;
     });
   }
 
@@ -249,7 +250,11 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   }
 
   Future<void> _configure(String slotId, String? source) async {
-    if (source == null || _race.phase != LapRacePhase.paused) return;
+    if (source == null ||
+        (_race.phase != LapRacePhase.ready &&
+            _race.phase != LapRacePhase.paused)) {
+      return;
+    }
     final changed = await widget.session.configureSlot(slotId, source);
     if (!mounted) return;
     _applySources();
@@ -264,7 +269,10 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   }
 
   void _showQr(String slotId) {
-    if (_race.phase != LapRacePhase.paused) return;
+    if (_race.phase != LapRacePhase.ready &&
+        _race.phase != LapRacePhase.paused) {
+      return;
+    }
     final invite = widget.session.inviteFor(slotId);
     if (invite == null) {
       if (!widget.session.resetSlot(slotId)) return;
@@ -301,6 +309,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     _race.removeListener(_raceChanged);
     _race.dispose();
     _refreshTimer?.cancel();
+    _hudRevision.dispose();
     _collisions?.cancel();
     widget.session.removeListener(_sessionChanged);
     _focusNode.removeListener(_focusChanged);
@@ -385,7 +394,13 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                         ),
                       ),
                       const SizedBox(width: 14),
-                      SizedBox(width: 300, child: _rightPanel()),
+                      SizedBox(
+                        width: 300,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _hudRevision,
+                          builder: (context, _, _) => _rightPanel(),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -985,6 +1000,36 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     final source = slot?.source ?? (red ? 'phone' : 'keyboard');
     final connected = slot?.connected == true;
     final remote = widget.session.remoteFor(red ? PlayerId.red : PlayerId.blue);
+    final phoneInputLost =
+        source == 'phone' && (!connected || !remote.hasFreshInput);
+    final raceStatus = switch (_race.phase) {
+      LapRacePhase.ready =>
+        widget.session.isSlotReadyToStart(slotId) ? 'SẴN SÀNG' : 'CHỜ KẾT NỐI',
+      LapRacePhase.countdown =>
+        phoneInputLost
+            ? connected
+                  ? 'MẤT TÍN HIỆU'
+                  : 'MẤT KẾT NỐI'
+            : 'SẮP XUẤT PHÁT',
+      LapRacePhase.racing =>
+        phoneInputLost
+            ? connected
+                  ? 'MẤT TÍN HIỆU'
+                  : 'MẤT KẾT NỐI'
+            : 'ĐANG ĐUA',
+      LapRacePhase.paused => 'TẠM DỪNG',
+      LapRacePhase.finished => 'KẾT THÚC',
+    };
+    final statusColor =
+        raceStatus == 'ĐANG ĐUA' ||
+            raceStatus == 'SẴN SÀNG' ||
+            raceStatus == 'SẮP XUẤT PHÁT'
+        ? const Color(0xFF5BD184)
+        : raceStatus == 'MẤT TÍN HIỆU' ||
+              raceStatus == 'MẤT KẾT NỐI' ||
+              raceStatus == 'CHỜ KẾT NỐI'
+        ? const Color(0xFFF2C66D)
+        : const Color(0xFFB6C1B9);
     final label = source == 'keyboard'
         ? 'Keyboard · Web'
         : !connected
@@ -1032,27 +1077,46 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
             label,
             style: const TextStyle(color: Color(0xFF9BA89E), fontSize: 11),
           ),
-          const SizedBox(height: 6),
-          DropdownButton<String>(
-            value: source,
-            isExpanded: true,
-            dropdownColor: const Color(0xFF1B2620),
-            style: const TextStyle(color: Colors.white),
-            items: const [
-              DropdownMenuItem(value: 'phone', child: Text('Phone')),
-              DropdownMenuItem(value: 'keyboard', child: Text('Keyboard')),
+          const SizedBox(height: 7),
+          Row(
+            children: [
+              Icon(Icons.circle, size: 8, color: statusColor),
+              const SizedBox(width: 6),
+              Text(
+                raceStatus,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                ),
+              ),
             ],
-            onChanged:
-                _race.phase != LapRacePhase.paused ||
-                    widget.session.isSlotConfiguring(slotId)
-                ? null
-                : (value) => _configure(slotId, value),
           ),
+          if (_race.phase == LapRacePhase.ready ||
+              _race.phase == LapRacePhase.paused) ...[
+            const SizedBox(height: 3),
+            DropdownButton<String>(
+              value: source,
+              isExpanded: true,
+              dropdownColor: const Color(0xFF1B2620),
+              style: const TextStyle(color: Colors.white),
+              items: const [
+                DropdownMenuItem(value: 'phone', child: Text('Phone')),
+                DropdownMenuItem(value: 'keyboard', child: Text('Keyboard')),
+              ],
+              onChanged: widget.session.isSlotConfiguring(slotId)
+                  ? null
+                  : (value) => _configure(slotId, value),
+            ),
+          ],
           if (source == 'phone' && !connected)
             TextButton.icon(
-              onPressed: _race.phase != LapRacePhase.paused
-                  ? null
-                  : () => _showQr(slotId),
+              onPressed:
+                  _race.phase == LapRacePhase.ready ||
+                      _race.phase == LapRacePhase.paused
+                  ? () => _showQr(slotId)
+                  : null,
               icon: const Icon(Icons.qr_code_2_rounded, size: 17),
               label: const Text('Hiện QR / nối lại'),
             ),

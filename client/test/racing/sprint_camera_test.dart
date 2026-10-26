@@ -29,6 +29,7 @@ void main() {
       ..snap(sim.red);
     final start = rig.position.clone();
     sim.red.position.setValues(1000, 1000);
+    sim.red.snapRenderPose();
     sim.red.driveSpeed = 200;
     sim.red.syncVelocity();
     rig.update(1 / 60, sim.red, running: false, finished: false);
@@ -44,6 +45,7 @@ void main() {
     rig.snap(sim.red);
     expect(rig.position.x, sim.red.position.x);
     sim.red.position.setValues(0, 0);
+    sim.red.snapRenderPose();
     rig.snap(sim.red);
     expect(rig.position.x, 240);
     expect(rig.position.y, 240);

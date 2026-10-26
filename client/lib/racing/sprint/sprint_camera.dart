@@ -39,7 +39,7 @@ class SprintCameraRig {
   }
 
   void snap(CarState car) {
-    position.setFrom(car.position);
+    position.setFrom(car.renderPosition);
     _lookAhead.setZero();
     _clamp();
   }
@@ -58,7 +58,7 @@ class SprintCameraRig {
     }
     _lookAhead.add((wanted - _lookAhead) * (1 - math.exp(-dt / 0.25)));
     position.add(
-      (car.position + _lookAhead - position) * (1 - math.exp(-dt / 0.15)),
+      (car.renderPosition + _lookAhead - position) * (1 - math.exp(-dt / 0.15)),
     );
     _clamp();
   }

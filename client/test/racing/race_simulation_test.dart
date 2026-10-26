@@ -125,6 +125,28 @@ void main() {
       expect(simulation.red.driveSpeed, -simulation.config.maxReverseSpeed);
     });
 
+    test('render pose interpolates fixed steps and snaps when paused', () {
+      final simulation = RaceSimulation();
+      addTearDown(simulation.dispose);
+      final input = _TestInput()
+        ..values[PlayerId.red] = const CarInput(throttle: 1);
+      final startX = simulation.red.position.x;
+      simulation.setRunning(true);
+
+      simulation.update(simulation.config.fixedStep * 1.5, input);
+
+      expect(simulation.red.position.x, greaterThan(startX));
+      expect(simulation.red.renderPosition.x, greaterThan(startX));
+      expect(
+        simulation.red.renderPosition.x,
+        lessThan(simulation.red.position.x),
+      );
+
+      simulation.setRunning(false);
+      expect(simulation.red.renderPosition.x, simulation.red.position.x);
+      expect(simulation.red.renderHeading, simulation.red.heading);
+    });
+
     test('emits one vehicle impact for a continuous contact', () {
       final simulation = RaceSimulation();
       addTearDown(simulation.dispose);

@@ -257,6 +257,7 @@ class MultiplayerRoomSession extends ChangeNotifier {
 
   void _handleMessage(ControllerMessage message) {
     if (_disposed || _ended) return;
+    if (message.event == ControllerEvents.pong) return;
     final data = message.data;
     switch (message.event) {
       case ControllerEvents.registered:
