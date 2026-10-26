@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult;
 
 import 'input/car_input.dart';
+import 'graphics/race_scenery_component.dart';
 import 'lap/lap_race_track.dart';
 import 'simulation/race_simulation.dart';
 import 'tracks/track_definition.dart';
@@ -52,9 +53,8 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
          ),
        ) {
     final track = sprintTrack;
-    final usesFixedSprint =
-        track != null && identical(track, FixedTracks.sprint);
-    _graphicsAssets = usesFixedSprint
+    final supportsRaceGraphics = track != null || lapTrack != null;
+    _graphicsAssets = supportsRaceGraphics
         ? sprintGraphicsAssets ?? SprintGraphicsAssets()
         : null;
     camera.viewfinder.position = Vector2(
@@ -66,11 +66,16 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
         : SprintTrackComponent(
             track,
             _graphicsAssets,
-            hasKenneyPresentation: usesFixedSprint,
+            hasKenneyPresentation: true,
           );
-    _sceneryComponents = usesFixedSprint
-        ? [SprintSceneryComponent(track, _graphicsAssets!)]
-        : [];
+    _sceneryComponents = _graphicsAssets == null
+        ? []
+        : [
+            if (track != null)
+              RaceSceneryComponent.sprint(track, _graphicsAssets)
+            else if (lapTrack != null)
+              RaceSceneryComponent.lap(_graphicsAssets),
+          ];
     _redCarComponent = CarComponent(
       state: simulation.red,
       color: const Color(0xFFE34B50),
@@ -115,11 +120,12 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   bool get isGraphicsPreloading =>
       _graphicsAssets != null && !_graphicsPreloadCompleter.isCompleted;
   late final SprintTrackComponent? _sprintTrackComponent;
-  late final List<SprintSceneryComponent> _sceneryComponents;
+  late final List<RaceSceneryComponent> _sceneryComponents;
   late final CarComponent _redCarComponent;
   late final CarComponent _blueCarComponent;
   SprintGraphicsStyle _graphicsStyle = SprintGraphicsStyle.legacy;
   SprintGraphicsStyle get graphicsStyle => _graphicsStyle;
+  bool get supportsGraphicsSelection => _graphicsAssets != null;
   bool get supportsKenneyGraphics => _graphicsAssets?.hasCars ?? false;
   CameraComponent? _secondCamera;
   List<SprintCameraRig> _cameraRigs = [];
@@ -127,13 +133,13 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   final void Function(double frameSeconds)? onFrameUpdate;
   double _snapshotElapsed = 0;
 
-  bool setSprintGraphicsStyle(SprintGraphicsStyle style) {
+  bool setGraphicsStyle(SprintGraphicsStyle style) {
     if (_graphicsAssets == null ||
         (style == SprintGraphicsStyle.kenney && !supportsKenneyGraphics)) {
       return false;
     }
     _graphicsStyle = style;
-    _sprintTrackComponent!.style = style;
+    _sprintTrackComponent?.style = style;
     for (final component in _sceneryComponents) {
       component.style = style;
     }
@@ -153,13 +159,11 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     unawaited(_preloadFixedSprintGraphics(assets));
   }
 
-  Future<void> _preloadFixedSprintGraphics(
-    SprintGraphicsAssets assets,
-  ) async {
+  Future<void> _preloadFixedSprintGraphics(SprintGraphicsAssets assets) async {
     try {
       await assets.preload();
       if (supportsKenneyGraphics) {
-        setSprintGraphicsStyle(SprintGraphicsStyle.kenney);
+        setGraphicsStyle(SprintGraphicsStyle.kenney);
       }
     } catch (_) {
       // Optional graphics must not prevent Fixed Sprint from starting.

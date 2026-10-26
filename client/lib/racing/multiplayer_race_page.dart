@@ -16,6 +16,7 @@ import 'simulation/race_simulation.dart';
 import 'race_mode.dart';
 import 'race_session.dart';
 import 'race_progress.dart';
+import 'race_results_presentation.dart';
 import 'tracks/track_definition.dart';
 import 'sprint/sprint_race_session.dart';
 import 'sprint/sprint_player_tracker.dart';
@@ -73,12 +74,9 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
 
   static const _track = LapRaceTrack.standard;
   TrackDefinition get _sprintTrack => widget.sprintTrack ?? FixedTracks.sprint;
-  bool get _isFixedSprint =>
-      widget.mode == RaceMode.sprint &&
-      identical(_sprintTrack, FixedTracks.sprint);
 
-  void _selectSprintGraphics(SprintGraphicsStyle style) {
-    if (!_game.setSprintGraphicsStyle(style)) {
+  void _selectGraphicsStyle(SprintGraphicsStyle style) {
+    if (!_game.setGraphicsStyle(style)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Không tải được ảnh xe Kenney.')),
       );
@@ -135,7 +133,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       onFrameUpdate: (dt) =>
           _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
     );
-    if (_isFixedSprint) {
+    if (_game.supportsGraphicsSelection) {
       unawaited(
         _game.loaded.then((_) {
           if (mounted) setState(() {});
@@ -409,7 +407,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                         ),
                       ),
                     ],
-                    if (_isFixedSprint) ...[
+                    if (_game.supportsGraphicsSelection) ...[
                       const SizedBox(width: 12),
                       SegmentedButton<SprintGraphicsStyle>(
                         showSelectedIcon: false,
@@ -431,7 +429,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                         onSelectionChanged:
                             _game.isLoaded && !_game.isGraphicsPreloading
                             ? (selection) =>
-                                  _selectSprintGraphics(selection.single)
+                                  _selectGraphicsStyle(selection.single)
                             : null,
                       ),
                     ],
@@ -584,7 +582,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                   TextButton.icon(
                     onPressed: _leaveToLobby,
                     icon: const Icon(Icons.meeting_room_outlined),
-                    label: const Text('Về Lobby'),
+                    label: const Text('Về sảnh chờ'),
                   ),
                 ],
               ],
@@ -883,21 +881,14 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
 
   Widget _buildResults() {
     final winner = _race.winner;
-    final title = _race.isDraw
-        ? 'HASIL SERI'
-        : winner == PlayerId.red
-        ? 'P1 MENANG'
-        : winner == PlayerId.blue
-        ? 'P2 MENANG'
-        : 'TANPA PEMENANG';
-    final reason = switch (_race.endReason) {
-      LapRaceEndReason.completed => 'Kedua player menyelesaikan balapan.',
-      LapRaceEndReason.deadline =>
-        'Batas 60 detik setelah finish pertama habis.',
-      LapRaceEndReason.hostEnded => 'Host mengakhiri balapan lebih awal.',
-      LapRaceEndReason.roomClosed => 'Phòng hoặc relay đã kết thúc.',
-      null => 'Cuộc đua đã kết thúc.',
-    };
+    final title = RaceResultsPresentation.title(
+      winner: winner,
+      isDraw: _race.isDraw,
+    );
+    final reason = RaceResultsPresentation.reason(
+      _race.endReason,
+      finishWaitSeconds: _race.config.finishWaitSeconds,
+    );
     return Scaffold(
       backgroundColor: const Color(0xFF111916),
       body: SafeArea(
@@ -931,7 +922,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'ROOM ${widget.session.roomId?.substring(0, 8) ?? 'đã đóng'} · Thời gian mô phỏng ${_formatDuration(_race.raceTime)}',
+                    'PHÒNG ${widget.session.roomId?.substring(0, 8) ?? 'đã đóng'} · Thời gian đua ${_formatDuration(_race.raceTime)}',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Color(0xFF849087),
@@ -965,13 +956,13 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                           }
                         : null,
                     icon: const Icon(Icons.replay_rounded),
-                    label: const Text('Rematch · giữ nguyên room & controller'),
+                    label: const Text('Đua lại · giữ nguyên phòng và tay cầm'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: _leaveToLobby,
                     icon: const Icon(Icons.meeting_room_outlined),
-                    label: const Text('Về Lobby'),
+                    label: const Text('Về sảnh chờ'),
                   ),
                 ],
               ),
@@ -986,12 +977,11 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     final progress = _race.progressFor(player);
     final red = player == PlayerId.red;
     final color = red ? const Color(0xFFFF696E) : const Color(0xFF68A4FF);
-    final status = switch (progress.status) {
-      LapPlayerStatus.finished =>
-        'FINISH · ${_formatDuration(progress.finishTime!)}',
-      LapPlayerStatus.dnf => 'DNF',
-      LapPlayerStatus.racing => 'ĐANG ĐUA',
-    };
+    final status = RaceResultsPresentation.playerStatus(
+      progress.status,
+      finishTime: progress.finishTime,
+      formatDuration: _formatDuration,
+    );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1008,7 +998,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  '${red ? 'P1 · Xe đỏ' : 'P2 · Xe xanh'}\n${progress is LapPlayerProgress ? '${progress.completedLaps}/${progress.lapCount} vòng' : '${(progress as SprintPlayerProgress).completedCheckpoints}/${progress.totalCheckpoints} checkpoint'}',
+                  '${red ? 'P1 · Xe đỏ' : 'P2 · Xe xanh'}\n${progress is LapPlayerProgress ? '${progress.completedLaps}/${progress.lapCount} vòng' : '${(progress as SprintPlayerProgress).completedCheckpoints}/${progress.totalCheckpoints} điểm kiểm tra'}',
                   style: const TextStyle(color: Colors.white, height: 1.5),
                 ),
               ),

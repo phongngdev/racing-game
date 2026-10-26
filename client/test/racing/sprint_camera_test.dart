@@ -62,7 +62,7 @@ void main() {
 
     expect(game.supportsKenneyGraphics, isFalse);
     expect(game.graphicsStyle, SprintGraphicsStyle.legacy);
-    expect(game.setSprintGraphicsStyle(SprintGraphicsStyle.kenney), isFalse);
+    expect(game.setGraphicsStyle(SprintGraphicsStyle.kenney), isFalse);
     expect(assets['vehicles/car_red_1.png'], isNull);
     expect(assets['vehicles/car_blue_1.png'], isNotNull);
     expect(assets['scenery/tree_large.png'], isNull);

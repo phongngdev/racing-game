@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/pages/multiplayer_setup_page.dart';
 import 'package:racing_client/racing/apex_racing_game.dart';
+import 'package:racing_client/controller/controller_protocol.dart';
+import 'package:racing_client/racing/input/car_input.dart';
+import 'package:racing_client/racing/input/multiplayer_input_source.dart';
 import 'package:racing_client/racing/multiplayer_race_page.dart';
 import 'package:racing_client/racing/race_mode.dart';
 import 'package:racing_client/racing/sprint/sprint_graphics_assets.dart';
@@ -182,6 +185,92 @@ void main() {
     },
   );
 
+  testWidgets('Lap Race graphics A/B keeps race, camera and inputs unchanged', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = RoomFixture();
+    final spriteGate = Completer<Sprite>();
+    final graphicsAssets = SprintGraphicsAssets(
+      loadSprite: (_) => spriteGate.future,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MultiplayerRacePage(
+          session: fixture.session,
+          mode: RaceMode.lap,
+          sprintGraphicsAssets: graphicsAssets,
+        ),
+      ),
+    );
+    final game = tester
+        .widget<GameWidget<ApexRacingGame>>(
+          find.byType(GameWidget<ApexRacingGame>),
+        )
+        .game!;
+    expect(find.text('Legacy'), findsOneWidget);
+    expect(find.text('Kenney'), findsOneWidget);
+    await tester.runAsync(() async {
+      await game.loaded;
+      await game.ready();
+    });
+    await tester.pump();
+    expect(game.isGraphicsPreloading, isTrue);
+    expect(
+      tester
+          .widget<SegmentedButton<SprintGraphicsStyle>>(
+            find.byType(SegmentedButton<SprintGraphicsStyle>),
+          )
+          .onSelectionChanged,
+      isNull,
+    );
+    spriteGate.complete(await _solidTestSprite());
+    await tester.runAsync(() => game.graphicsPreload);
+    game.pauseEngine();
+    await tester.pump();
+
+    expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+    expect(game.supportsGraphicsSelection, isTrue);
+    final red = game.simulation.red;
+    red.position.setValues(430, 112);
+    red.heading = 0.25;
+    red.driveSpeed = 88;
+    red.syncVelocity();
+    game.simulation.setRunning(true);
+    final position = red.position.clone();
+    final heading = red.heading;
+    final speed = red.driveSpeed;
+    final velocity = red.velocity.clone();
+    final resetRevision = game.simulation.resetRevision;
+    final cameraPosition = game.camera.viewfinder.position.clone();
+    final input = game.inputSource as MultiplayerInputSource;
+    final p1Phone = input.isPhoneSelected(PlayerId.red);
+    final p2Phone = input.isPhoneSelected(PlayerId.blue);
+
+    await tester.tap(find.text('Legacy'));
+    await tester.pump();
+    expect(game.graphicsStyle, SprintGraphicsStyle.legacy);
+    await tester.tap(find.text('Kenney'));
+    await tester.pump();
+    expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+    expect(red.position, position);
+    expect(red.heading, heading);
+    expect(red.driveSpeed, speed);
+    expect(red.velocity, velocity);
+    expect(game.simulation.resetRevision, resetRevision);
+    expect(game.simulation.isRunning, isTrue);
+    expect(game.camera.viewfinder.position, cameraPosition);
+    expect(input.isPhoneSelected(PlayerId.red), p1Phone);
+    expect(input.isPhoneSelected(PlayerId.blue), p2Phone);
+    expect(fixture.connection.sentEvents, isEmpty);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fixture.session.dispose();
+  });
+
   testWidgets(
     'Sprint HUD, Pause Restart, Results and Rematch keep the same room',
     (tester) async {
@@ -193,12 +282,16 @@ void main() {
       final generatedTrack = const SprintTrackGenerator()
           .generate('lifecycle-track')
           .track;
+      final graphicsAssets = SprintGraphicsAssets(
+        loadSprite: (_) => _solidTestSprite(),
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: MultiplayerRacePage(
             session: fixture.session,
             mode: RaceMode.sprint,
             sprintTrack: generatedTrack,
+            sprintGraphicsAssets: graphicsAssets,
           ),
         ),
       );
@@ -210,12 +303,45 @@ void main() {
       await tester.runAsync(() async {
         await game.loaded;
         await game.ready();
+        await game.graphicsPreload.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('Timed out waiting for graphics'),
+        );
       });
       await tester.pump();
+      game.pauseEngine();
       expect(identical(game.simulation.track, generatedTrack), isTrue);
       expect(identical(game.sprintTrack, generatedTrack), isTrue);
       expect(find.text('SPRINT RACE'), findsOneWidget);
-      expect(find.text('Kenney'), findsNothing);
+      expect(game.supportsGraphicsSelection, isTrue);
+      expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+      expect(find.text('Kenney'), findsOneWidget);
+      final red = game.simulation.red;
+      red.position.setValues(500, 1800);
+      red.heading = 0.4;
+      red.driveSpeed = 77;
+      red.syncVelocity();
+      final positionBeforeGraphicsChange = red.position.clone();
+      final headingBeforeGraphicsChange = red.heading;
+      final speedBeforeGraphicsChange = red.driveSpeed;
+      final cameraBeforeGraphicsChange = game.camera.viewfinder.position
+          .clone();
+      final input = game.inputSource as MultiplayerInputSource;
+      final p1Phone = input.isPhoneSelected(PlayerId.red);
+      final p2Phone = input.isPhoneSelected(PlayerId.blue);
+      await tester.tap(find.text('Legacy'));
+      await tester.pump();
+      expect(game.graphicsStyle, SprintGraphicsStyle.legacy);
+      await tester.tap(find.text('Kenney'));
+      await tester.pump();
+      expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+      expect(red.position, positionBeforeGraphicsChange);
+      expect(red.heading, headingBeforeGraphicsChange);
+      expect(red.driveSpeed, speedBeforeGraphicsChange);
+      expect(game.camera.viewfinder.position, cameraBeforeGraphicsChange);
+      expect(input.isPhoneSelected(PlayerId.red), p1Phone);
+      expect(input.isPhoneSelected(PlayerId.blue), p2Phone);
+      game.resumeEngine();
       expect(
         find.textContaining('CP 0/${generatedTrack.checkpoints.length}'),
         findsNWidgets(2),
@@ -283,15 +409,22 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Kết thúc sớm và xem Results'));
       await tester.pump();
-      expect(find.text('TANPA PEMENANG'), findsOneWidget);
-      expect(find.text('DNF'), findsNWidgets(2));
-      await tester.tap(find.text('Rematch · giữ nguyên room & controller'));
+      expect(find.text('KHÔNG CÓ NGƯỜI THẮNG'), findsOneWidget);
+      expect(find.text('Chủ phòng đã kết thúc cuộc đua sớm.'), findsOneWidget);
+      expect(find.textContaining('DNF'), findsNWidgets(2));
+      await tester.tap(find.text('Đua lại · giữ nguyên phòng và tay cầm'));
       await tester.pump();
       expect(find.text('SPRINT RACE'), findsOneWidget);
       expect(identical(game.simulation.track, generatedTrack), isTrue);
       expect(identical(game.sprintTrack, generatedTrack), isTrue);
       expect(fixture.session.roomId, 'room-test-01');
       expect(fixture.connection.sentEvents, isEmpty);
+      fixture.connection.emit(ControllerEvents.roomClosed, const {});
+      await tester.pump();
+      expect(
+        find.text('Phòng đã đóng hoặc mất kết nối với máy chủ.'),
+        findsOneWidget,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       fixture.session.dispose();
     },
