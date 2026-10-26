@@ -41,13 +41,21 @@ void main() {
       );
       await tester.tap(find.text('Tạo phòng'));
       await tester.pump();
-      await tester.ensureVisible(find.text('Sprint Race'));
+      expect(find.textContaining('QR p1 chưa sẵn sàng'), findsNothing);
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Sprint Race')),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Sprint Race'));
       await tester.pump();
       expect(find.textContaining('Sprint Race · Start'), findsOneWidget);
       expect(creates, 1);
       expect(fixture.session.roomId, 'room-test-01');
-      await tester.ensureVisible(find.text('Vào đường đua'));
+      expect(
+        tester.getRect(find.text('Vào đường đua')).bottom,
+        lessThan(tester.view.physicalSize.height),
+      );
       await tester.tap(find.text('Vào đường đua'));
       await tester.pump();
       expect(startedMode, RaceMode.sprint);
@@ -89,13 +97,25 @@ void main() {
       expect(find.text('SPRINT RACE'), findsOneWidget);
       expect(find.textContaining('CP 0/8'), findsNWidgets(2));
       expect(find.textContaining('Vòng'), findsNothing);
-      await tester.tap(find.text('Countdown & mulai'));
+      expect(
+        tester.getTopLeft(find.text('Bắt đầu đua')).dy,
+        lessThan(tester.getTopLeft(find.textContaining('CP 0/8').first).dy),
+      );
+      await tester.tap(find.text('Bắt đầu đua'));
       await tester.pump();
+      expect(find.text('3'), findsOneWidget);
       await tester.pump(const Duration(seconds: 1));
+      expect(find.text('2'), findsOneWidget);
       await tester.pump(const Duration(seconds: 1));
+      expect(find.text('1'), findsOneWidget);
       await tester.pump(const Duration(seconds: 1));
+      expect(find.text('GO!'), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 20));
       expect(game.simulation.isRunning, isTrue);
+      for (var i = 0; i < 60 && find.text('GO!').evaluate().isNotEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(find.text('GO!'), findsNothing);
       expect(find.text('ĐANG ĐUA'), findsNWidgets(2));
       expect(find.byType(DropdownButton<String>), findsNothing);
       await tester.tap(find.text('Tạm dừng'));
@@ -103,11 +123,28 @@ void main() {
       expect(game.simulation.isRunning, isFalse);
       expect(find.text('TẠM DỪNG'), findsNWidgets(3));
       expect(find.byType(DropdownButton<String>), findsNWidgets(2));
+      await tester.tap(find.text('Tiếp tục').last);
+      await tester.pump();
+      expect(find.text('3'), findsOneWidget);
+      expect(game.simulation.isRunning, isFalse);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('2'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('1'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('GO!'), findsOneWidget);
+      expect(game.simulation.isRunning, isTrue);
+      for (var i = 0; i < 60 && find.text('GO!').evaluate().isNotEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(find.text('GO!'), findsNothing);
+      await tester.tap(find.text('Tạm dừng'));
+      await tester.pump();
       await tester.tap(find.text('Restart từ vạch xuất phát'));
       await tester.pump();
-      expect(find.text('Countdown & mulai'), findsOneWidget);
+      expect(find.text('Bắt đầu đua'), findsOneWidget);
       // Enter countdown, then host ends it from Pause: both DNF, no winner.
-      await tester.tap(find.text('Countdown & mulai'));
+      await tester.tap(find.text('Bắt đầu đua'));
       await tester.pump();
       await tester.tap(find.text('Tạm dừng'));
       await tester.pump();

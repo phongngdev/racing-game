@@ -49,6 +49,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
   double _raceTime = 0;
   double _countdownRemaining = 0;
   double _goRemaining = 0;
+  bool _resumeAfterCountdown = false;
   double? _firstFinishTime;
   double? _finishDeadline;
   String? _message;
@@ -91,6 +92,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
     }
     _message = null;
     _countdownRemaining = config.countdownSeconds;
+    _resumeAfterCountdown = false;
     _phase = RacePhase.countdown;
     setGameRunning(true);
     notifyListeners();
@@ -100,20 +102,24 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
   void advanceFrame(double elapsed, {bool publish = true}) {
     if (!elapsed.isFinite || elapsed <= 0) return;
     if (_phase == RacePhase.countdown) {
-      if (!controllersAvailable()) {
+      if (!_resumeAfterCountdown && !controllersAvailable()) {
         _phase = RacePhase.ready;
         _countdownRemaining = config.countdownSeconds;
+        _resumeAfterCountdown = false;
         _message = 'Tay cầm bị ngắt hoặc mất tín hiệu trong countdown. Sẵn sàng lại để đếm từ đầu.';
         notifyListeners();
         return;
       }
       if (elapsed < _countdownRemaining) {
+        final previousNumber = countdownNumber;
         _countdownRemaining -= elapsed;
+        if (countdownNumber != previousNumber) notifyListeners();
         return;
       }
       final physicsElapsed = elapsed - _countdownRemaining;
       _countdownRemaining = 0;
       _phase = RacePhase.racing;
+      _resumeAfterCountdown = false;
       _goRemaining = 0.75;
       simulation.setRunning(true);
       if (physicsElapsed > 0) {
@@ -127,8 +133,10 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
       return;
     }
     if (_phase != RacePhase.racing) return;
+    final wasShowingGo = showGo;
     simulation.update(elapsed, inputSource, onFixedStep: _onFixedStep);
-    if (publish) notifyListeners();
+    final goJustEnded = _phase == RacePhase.racing && wasShowingGo && !showGo;
+    if (publish || goJustEnded) notifyListeners();
   }
 
   bool pause() {
@@ -146,11 +154,18 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
     if (_phase != RacePhase.paused) return false;
     final previous = _pausedFrom;
     _pausedFrom = null;
-    if (previous == RacePhase.countdown && !canStart()) {
+    if (previous == RacePhase.countdown &&
+        !_resumeAfterCountdown &&
+        !canStart()) {
       _phase = RacePhase.ready;
       _countdownRemaining = config.countdownSeconds;
       _message =
           'Tay cầm chưa gửi input trung tính. Sẵn sàng lại để đếm từ đầu.';
+    } else if (previous == RacePhase.racing) {
+      _phase = RacePhase.countdown;
+      _countdownRemaining = config.countdownSeconds;
+      _resumeAfterCountdown = true;
+      _message = null;
     } else {
       _phase = previous ?? RacePhase.ready;
       if (_phase == RacePhase.racing) simulation.setRunning(true);
@@ -205,6 +220,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
     _raceTime = 0;
     _countdownRemaining = 0;
     _goRemaining = 0;
+    _resumeAfterCountdown = false;
     _firstFinishTime = null;
     _finishDeadline = null;
     _capturePositions();
@@ -308,6 +324,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
     if (_phase == RacePhase.finished) return;
     _phase = RacePhase.finished;
     _pausedFrom = null;
+    _resumeAfterCountdown = false;
     simulation.setRunning(false);
     clearInputs();
     setGameRunning(true);

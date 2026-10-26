@@ -512,73 +512,92 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     );
   }
 
-  Widget _rightPanel() => SingleChildScrollView(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final id in const ['p1', 'p2']) ...[
-          _slotPanel(id),
-          const SizedBox(height: 10),
-        ],
-        _raceClockPanel(),
-        const SizedBox(height: 8),
-        _progressPanel(PlayerId.red),
-        const SizedBox(height: 8),
-        _progressPanel(PlayerId.blue),
-        const SizedBox(height: 10),
-        if (_race.phase == LapRacePhase.ready ||
-            _race.phase == LapRacePhase.paused) ...[
-          _readinessPanel(),
-          const SizedBox(height: 10),
-        ],
-        if (_race.finishTimeRemaining case final remaining?) ...[
-          _finishDeadlinePanel(remaining),
-          const SizedBox(height: 10),
-        ],
-        _speedCard(),
-        const SizedBox(height: 10),
-        FilledButton.icon(
-          onPressed: _race.phase == LapRacePhase.finished ? null : _toggle,
-          icon: Icon(
-            _race.phase == LapRacePhase.paused
-                ? Icons.play_arrow
-                : _race.phase == LapRacePhase.ready
-                ? _race.canStartRace
-                      ? Icons.flag_rounded
-                      : Icons.tune_rounded
-                : Icons.pause,
+  Widget _rightPanel() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _raceActionButton(),
+      const SizedBox(height: 10),
+      Expanded(
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final id in const ['p1', 'p2']) ...[
+                _slotPanel(id),
+                const SizedBox(height: 10),
+              ],
+              _raceClockPanel(),
+              const SizedBox(height: 8),
+              _progressPanel(PlayerId.red),
+              const SizedBox(height: 8),
+              _progressPanel(PlayerId.blue),
+              const SizedBox(height: 10),
+              if (_race.phase == LapRacePhase.ready ||
+                  _race.phase == LapRacePhase.paused) ...[
+                _readinessPanel(),
+                const SizedBox(height: 10),
+              ],
+              if (_race.finishTimeRemaining case final remaining?) ...[
+                _finishDeadlinePanel(remaining),
+                const SizedBox(height: 10),
+              ],
+              _speedCard(),
+              const SizedBox(height: 10),
+              if (_qrSlot case final slotId?) ...[
+                _qrPanel(slotId),
+                const SizedBox(height: 10),
+              ],
+              if (_race.message != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _race.message!,
+                    style: const TextStyle(
+                      color: Color(0xFFF2C66D),
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              if (widget.session.error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    widget.session.error!,
+                    style: const TextStyle(
+                      color: Color(0xFFFF9C92),
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+            ],
           ),
-          label: Text(switch (_race.phase) {
-            LapRacePhase.ready =>
-              _race.canStartRace
-                  ? 'Countdown & mulai'
-                  : 'Pause để đổi nguồn / hiện QR',
-            LapRacePhase.paused => 'Lanjutkan',
-            LapRacePhase.countdown || LapRacePhase.racing => 'Tạm dừng',
-            LapRacePhase.finished => 'Results',
-          }),
         ),
-        if (_qrSlot case final slotId?) ...[
-          const SizedBox(height: 10),
-          _qrPanel(slotId),
-        ],
-        if (_race.message != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              _race.message!,
-              style: const TextStyle(color: Color(0xFFF2C66D), fontSize: 11),
-            ),
-          ),
-        if (widget.session.error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              widget.session.error!,
-              style: const TextStyle(color: Color(0xFFFF9C92), fontSize: 11),
-            ),
-          ),
-      ],
+      ),
+    ],
+  );
+
+  Widget _raceActionButton() => SizedBox(
+    height: 48,
+    child: FilledButton.icon(
+      onPressed: switch (_race.phase) {
+        LapRacePhase.ready => _race.canStartRace ? _toggle : null,
+        LapRacePhase.countdown ||
+        LapRacePhase.racing ||
+        LapRacePhase.paused => _toggle,
+        LapRacePhase.finished => null,
+      },
+      icon: Icon(switch (_race.phase) {
+        LapRacePhase.ready || LapRacePhase.countdown => Icons.flag_rounded,
+        LapRacePhase.racing => Icons.pause,
+        LapRacePhase.paused => Icons.play_arrow,
+        LapRacePhase.finished => Icons.flag_rounded,
+      }),
+      label: Text(switch (_race.phase) {
+        LapRacePhase.ready => 'Bắt đầu đua',
+        LapRacePhase.countdown || LapRacePhase.racing => 'Tạm dừng',
+        LapRacePhase.paused => 'Tiếp tục',
+        LapRacePhase.finished => 'Results',
+      }),
     ),
   );
 
