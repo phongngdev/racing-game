@@ -11,6 +11,63 @@ import 'package:racing_client/racing/tracks/track_definition.dart';
 import 'package:racing_client/racing/tracks/track_geometry.dart';
 
 void main() {
+  test('countdown and GO publish only visible state changes', () {
+    final f = _Fixture();
+    addTearDown(f.dispose);
+    var notifications = 0;
+    void countNotification() => notifications++;
+    f.race.addListener(countNotification);
+    addTearDown(() => f.race.removeListener(countNotification));
+
+    expect(f.race.startCountdown(), isTrue);
+    expect(notifications, 1);
+    f.race.advanceFrame(0.5, publish: false);
+    expect(notifications, 1);
+    f.race.advanceFrame(0.6, publish: false);
+    expect(f.race.countdownNumber, 2);
+    expect(notifications, 2);
+
+    f.race.advanceFrame(2, publish: false);
+    expect(f.race.phase, RacePhase.racing);
+    expect(f.race.showGo, isTrue);
+    expect(notifications, 3);
+    f.race.advanceFrame(0.1, publish: false);
+    expect(f.race.showGo, isTrue);
+    expect(notifications, 3);
+    for (var i = 0; i < 20 && f.race.showGo; i++) {
+      f.race.advanceFrame(0.1, publish: false);
+    }
+    expect(f.race.showGo, isFalse);
+    expect(notifications, 4);
+  });
+
+  test(
+    'resuming a paused race waits three seconds with physics and clock frozen',
+    () {
+      final f = _Fixture();
+      addTearDown(f.dispose);
+      f.start();
+      f.race.advanceFrame(0.1);
+      final pausedAt = f.race.raceTime;
+      expect(f.race.pause(), isTrue);
+
+      expect(f.race.resume(), isTrue);
+      expect(f.race.phase, RacePhase.countdown);
+      expect(f.race.countdownNumber, 3);
+      expect(f.simulation.isRunning, isFalse);
+      f.race.advanceFrame(2.99, publish: false);
+      expect(f.race.phase, RacePhase.countdown);
+      expect(f.race.countdownNumber, 1);
+      expect(f.race.raceTime, pausedAt);
+      expect(f.simulation.isRunning, isFalse);
+
+      f.race.advanceFrame(0.02, publish: false);
+      expect(f.race.phase, RacePhase.racing);
+      expect(f.simulation.isRunning, isTrue);
+      expect(f.race.raceTime, greaterThan(pausedAt));
+    },
+  );
+
   for (final first in PlayerId.values) {
     test(
       '$first wins, second player finishes later, Results waits for both',
@@ -78,6 +135,7 @@ void main() {
     f.race.advanceFrame(60);
     expect(f.race.finishTimeRemaining, deadline);
     f.race.resume();
+    f.race.advanceFrame(3);
     for (var i = 0; i < 20; i++) {
       f.race.advanceFrame(1 / 120);
     }

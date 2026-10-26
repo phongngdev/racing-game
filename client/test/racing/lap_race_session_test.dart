@@ -57,6 +57,9 @@ void main() {
     fixture.canStart = false;
     fixture.controllersAvailable = false;
     expect(race.resume(), isTrue);
+    expect(race.phase, LapRacePhase.countdown);
+    expect(fixture.simulation.isRunning, isFalse);
+    race.advanceFrame(3);
     expect(race.phase, LapRacePhase.racing);
   });
 

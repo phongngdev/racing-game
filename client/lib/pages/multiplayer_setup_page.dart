@@ -78,7 +78,7 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
     session.addListener(_changed);
     setState(() {
       _session = session;
-      _shownQrSlot = 'p1';
+      _shownQrSlot = null;
       _error = null;
     });
   }
@@ -241,44 +241,6 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
                             : (value) => setState(() => _mode = value),
                       ),
                       const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: session.canStart && !_starting
-                            ? _start
-                            : null,
-                        icon: const Icon(Icons.flag_rounded),
-                        label: Text(
-                          _starting ? 'Đang mở game…' : 'Vào đường đua',
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: session.canStart
-                              ? const Color(0xFFEAF7EE)
-                              : const Color(0xFFFFF7E8),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              session.canStart
-                                  ? Icons.check_circle_outline_rounded
-                                  : Icons.info_outline_rounded,
-                              color: session.canStart
-                                  ? const Color(0xFF16803C)
-                                  : const Color(0xFF9A6700),
-                            ),
-                            const SizedBox(width: 9),
-                            Expanded(
-                              child: Text(
-                                _startGuidance(session),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ],
                 ),
@@ -287,6 +249,93 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
           );
         },
       ),
+      bottomNavigationBar: session == null
+          ? null
+          : SafeArea(
+              top: false,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, -3),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Center(
+                  heightFactor: 1,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1000),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final compact = constraints.maxWidth < 600;
+                        final details = Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Chế độ: ${_mode.label}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _startGuidance(session),
+                              maxLines: compact ? 2 : 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF667085),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        );
+                        final button = SizedBox(
+                          width: compact ? double.infinity : 240,
+                          child: FilledButton.icon(
+                            onPressed: session.canStart && !_starting
+                                ? _start
+                                : null,
+                            icon: const Icon(Icons.flag_rounded),
+                            label: Text(
+                              _starting ? 'Đang mở game…' : 'Vào đường đua',
+                            ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          ),
+                        );
+                        if (compact) {
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              details,
+                              const SizedBox(height: 8),
+                              button,
+                            ],
+                          );
+                        }
+                        return Row(
+                          children: [
+                            Expanded(child: details),
+                            const SizedBox(width: 16),
+                            button,
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 
