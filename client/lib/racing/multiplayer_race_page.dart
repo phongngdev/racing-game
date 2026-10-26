@@ -27,11 +27,13 @@ class MultiplayerRacePage extends StatefulWidget {
     required this.session,
     this.onBack,
     this.mode = RaceMode.lap,
+    this.sprintTrack,
   });
 
   final MultiplayerRoomSession session;
   final VoidCallback? onBack;
   final RaceMode mode;
+  final TrackDefinition? sprintTrack;
 
   @override
   State<MultiplayerRacePage> createState() => _MultiplayerRacePageState();
@@ -67,13 +69,14 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   };
 
   static const _track = LapRaceTrack.standard;
+  TrackDefinition get _sprintTrack => widget.sprintTrack ?? FixedTracks.sprint;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _simulation = RaceSimulation(
-      track: widget.mode == RaceMode.sprint ? FixedTracks.sprint : null,
+      track: widget.mode == RaceMode.sprint ? _sprintTrack : null,
       redStartPosition: widget.mode == RaceMode.lap
           ? Vector2(_track.redGrid.x, _track.redGrid.y)
           : null,
@@ -94,7 +97,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
             controllersAvailable: _controllersAvailable,
             clearInputs: _input.clear,
             setGameRunning: widget.session.setGameRunning,
-            track: FixedTracks.sprint,
+            track: _sprintTrack,
           )
         : LapRaceSession(
             simulation: _simulation,
@@ -110,7 +113,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       snapshot: _snapshot,
       onKeyboardEvent: _handleKeyEvent,
       lapTrack: widget.mode == RaceMode.lap ? _track : null,
-      sprintTrack: widget.mode == RaceMode.sprint ? FixedTracks.sprint : null,
+      sprintTrack: widget.mode == RaceMode.sprint ? _sprintTrack : null,
       // Sprint HUD refreshes via the existing 100 ms timer; physics still runs every frame.
       onFrameUpdate: (dt) =>
           _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
@@ -352,6 +355,31 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                         letterSpacing: 1.2,
                       ),
                     ),
+                    if (widget.mode == RaceMode.sprint &&
+                        _sprintTrack.seed != null) ...[
+                      const SizedBox(width: 10),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF20362A),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 5,
+                          ),
+                          child: Text(
+                            'SEED ${_sprintTrack.seed} · '
+                            'v${_sprintTrack.generatorVersion}',
+                            style: const TextStyle(
+                              color: Color(0xFF91D6A8),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     const Spacer(),
                     Text(
                       roomId == null
@@ -855,6 +883,17 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                       fontSize: 12,
                     ),
                   ),
+                  if (_sprintTrack.seed case final seed?) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      'SEED $seed · v${_sprintTrack.generatorVersion}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFF91D6A8),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   for (final player in PlayerId.values) ...[
                     _resultCard(player),

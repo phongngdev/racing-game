@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../controller/controller_config.dart';
@@ -8,6 +10,8 @@ import '../controller/pairing_payload.dart';
 import '../racing/multiplayer_room_session.dart';
 import '../racing/race_mode.dart';
 import '../racing/race_mode_selector.dart';
+import '../racing/tracks/sprint_track_generator.dart';
+import '../racing/tracks/track_definition.dart';
 
 class MultiplayerSetupPage extends StatefulWidget {
   const MultiplayerSetupPage({
@@ -18,7 +22,11 @@ class MultiplayerSetupPage extends StatefulWidget {
   });
 
   final VoidCallback onBack;
-  final Future<void> Function(MultiplayerRoomSession session, RaceMode mode)
+  final Future<void> Function(
+    MultiplayerRoomSession session,
+    RaceMode mode,
+    TrackDefinition? sprintTrack,
+  )
   onStart;
   final MultiplayerRoomSession Function(Uri relay)? sessionFactory;
 
@@ -28,10 +36,15 @@ class MultiplayerSetupPage extends StatefulWidget {
 
 class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
   final _relayUrl = TextEditingController(text: ControllerConfig.webSocketUrl);
+  final _sprintSeed = TextEditingController();
   MultiplayerRoomSession? _session;
   String? _error;
   String? _shownQrSlot;
   bool _starting = false;
+  bool _randomSprint = false;
+  bool _generatingTrack = false;
+  TrackDefinition? _generatedSprintTrack;
+  String? _trackError;
   RaceMode _mode = RaceMode.lap;
 
   @override
@@ -43,6 +56,7 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
       session.dispose();
     }
     _relayUrl.dispose();
+    _sprintSeed.dispose();
     super.dispose();
   }
 
@@ -88,11 +102,166 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
     if (session == null || !session.canStart || _starting) return;
     setState(() => _starting = true);
     try {
-      await widget.onStart(session, _mode);
+      if (_mode == RaceMode.sprint &&
+          _randomSprint &&
+          _generatedSprintTrack == null) {
+        setState(() => _trackError = 'Hãy tạo track hợp lệ trước khi vào đua.');
+        return;
+      }
+      await widget.onStart(
+        session,
+        _mode,
+        _mode == RaceMode.sprint
+            ? (_randomSprint ? _generatedSprintTrack : FixedTracks.sprint)
+            : null,
+      );
     } finally {
       if (mounted) setState(() => _starting = false);
     }
   }
+
+  bool _canEnterRace(MultiplayerRoomSession session) =>
+      session.canStart &&
+      !_starting &&
+      !_generatingTrack &&
+      !(_mode == RaceMode.sprint &&
+          _randomSprint &&
+          _generatedSprintTrack == null);
+
+  Future<void> _createRandomTrack({String? seed}) async {
+    final selectedSeed = seed ?? _sprintSeed.text;
+    setState(() {
+      _generatingTrack = true;
+      _trackError = null;
+      _generatedSprintTrack = null;
+    });
+    await Future<void>.delayed(Duration.zero);
+    try {
+      final generated = const SprintTrackGenerator().generate(selectedSeed);
+      if (!mounted) return;
+      setState(() {
+        _sprintSeed.text = generated.seed;
+        _generatedSprintTrack = generated.track;
+        _generatingTrack = false;
+      });
+    } on SprintTrackGenerationException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _trackError = error.toString();
+        _generatingTrack = false;
+      });
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _trackError = error.message.toString();
+        _generatingTrack = false;
+      });
+    }
+  }
+
+  Future<void> _newRandomTrack() async {
+    final source = Random.secure();
+    var seed = 'Sprint-${source.nextInt(0x7fffffff).toRadixString(36)}';
+    while (seed == _generatedSprintTrack?.seed) {
+      seed = 'Sprint-${source.nextInt(0x7fffffff).toRadixString(36)}';
+    }
+    _sprintSeed.text = seed;
+    await _createRandomTrack(seed: seed);
+  }
+
+  Widget _sprintTrackOptions() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Đường đua Sprint',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('Fixed')),
+              ButtonSegment(value: true, label: Text('Random')),
+            ],
+            selected: {_randomSprint},
+            onSelectionChanged: _starting || _generatingTrack
+                ? null
+                : (selection) => setState(() {
+                    _randomSprint = selection.first;
+                    _trackError = null;
+                  }),
+          ),
+          if (_randomSprint) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _sprintSeed,
+              maxLength: 64,
+              enabled: !_starting && !_generatingTrack,
+              decoration: const InputDecoration(
+                labelText: 'Seed (chữ hoặc số)',
+                border: OutlineInputBorder(),
+                counterText: '',
+              ),
+              onChanged: (value) => setState(() {
+                if (_generatedSprintTrack?.seed != value.trim()) {
+                  _generatedSprintTrack = null;
+                }
+                _trackError = null;
+              }),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: _generatingTrack || _starting
+                      ? null
+                      : () => _createRandomTrack(),
+                  child: const Text('Tạo track'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _generatingTrack || _starting
+                      ? null
+                      : _newRandomTrack,
+                  icon: const Icon(Icons.shuffle_rounded),
+                  label: const Text('New Track'),
+                ),
+                if (_generatedSprintTrack?.seed case final seed?)
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        Clipboard.setData(ClipboardData(text: seed)),
+                    icon: const Icon(Icons.copy_rounded),
+                    label: const Text('Copy seed'),
+                  ),
+              ],
+            ),
+            if (_generatingTrack) ...[
+              const SizedBox(height: 10),
+              const LinearProgressIndicator(),
+              const SizedBox(height: 6),
+              const Text('Đang tạo và kiểm tra đường đua…'),
+            ],
+            if (_generatedSprintTrack case final track?) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Seed: ${track.seed} · v${track.generatorVersion} · '
+                '${(track.finishStation - track.gridStation).toStringAsFixed(0)} units · '
+                '${track.checkpoints.length} checkpoint · '
+                '${track.walls.length} wall',
+                style: const TextStyle(color: Color(0xFF16803C)),
+              ),
+            ],
+            if (_trackError case final error?) ...[
+              const SizedBox(height: 8),
+              Text(error, style: const TextStyle(color: Color(0xFFB42318))),
+            ],
+          ],
+        ],
+      ),
+    ),
+  );
 
   Future<void> _selectSource(String slotId, String? source) async {
     if (source == null) return;
@@ -240,6 +409,10 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
                             ? null
                             : (value) => setState(() => _mode = value),
                       ),
+                      if (_mode == RaceMode.sprint) ...[
+                        const SizedBox(height: 12),
+                        _sprintTrackOptions(),
+                      ],
                       const SizedBox(height: 16),
                     ],
                   ],
@@ -300,9 +473,7 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
                         final button = SizedBox(
                           width: compact ? double.infinity : 240,
                           child: FilledButton.icon(
-                            onPressed: session.canStart && !_starting
-                                ? _start
-                                : null,
+                            onPressed: _canEnterRace(session) ? _start : null,
                             icon: const Icon(Icons.flag_rounded),
                             label: Text(
                               _starting ? 'Đang mở game…' : 'Vào đường đua',
@@ -520,6 +691,11 @@ class _MultiplayerSetupPageState extends State<MultiplayerSetupPage> {
         _ =>
           '$player đã cân tâm. Nhả GA/LÙI để gửi input trung tính trước khi xuất phát.',
       };
+    }
+    if (_mode == RaceMode.sprint &&
+        _randomSprint &&
+        _generatedSprintTrack == null) {
+      return 'Tạo một track Random hợp lệ trước khi vào đường đua.';
     }
     return 'Hai player đã sẵn sàng. Có thể bắt đầu trận.';
   }

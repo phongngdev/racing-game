@@ -9,6 +9,7 @@ import 'package:racing_client/racing/simulation/race_simulation.dart';
 import 'package:racing_client/racing/sprint/sprint_camera.dart';
 import 'package:racing_client/racing/sprint/sprint_race_session.dart';
 import 'package:racing_client/racing/tracks/track_definition.dart';
+import 'package:racing_client/racing/tracks/sprint_track_generator.dart';
 
 void main() {
   test('panes partition landscape and portrait without overlap', () {
@@ -50,6 +51,30 @@ void main() {
     expect(rig.position.x, 240);
     expect(rig.position.y, 240);
   });
+  test(
+    'generated track bounds clamp both camera rigs to the generated world',
+    () {
+      final track = const SprintTrackGenerator()
+          .generate('camera-bounds')
+          .track;
+      final simulation = RaceSimulation(track: track);
+      addTearDown(simulation.dispose);
+      final rig = SprintCameraRig(track)
+        ..resize(600, 360)
+        ..snap(simulation.red);
+      simulation.red.position.setValues(
+        track.worldBounds.right + 1000,
+        track.worldBounds.bottom + 1000,
+      );
+      simulation.red.snapRenderPose();
+      rig.snap(simulation.red);
+      expect(rig.zoom, greaterThan(0));
+      expect(rig.position.x, lessThanOrEqualTo(track.worldBounds.right));
+      expect(rig.position.y, lessThanOrEqualTo(track.worldBounds.bottom));
+      expect(rig.position.x, greaterThanOrEqualTo(track.worldBounds.left));
+      expect(rig.position.y, greaterThanOrEqualTo(track.worldBounds.top));
+    },
+  );
   testWidgets(
     'two Flame cameras share one world, simulation and fixed-step clock',
     (tester) async {
