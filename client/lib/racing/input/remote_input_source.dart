@@ -112,8 +112,11 @@ class RemoteInputSource implements InputSource {
 
   @override
   CarInput inputFor(PlayerId player) {
-    if (player != this.player || !hasFreshInput || _requiresNeutral) {
+    if (player != this.player) {
       return const CarInput();
+    }
+    if (!hasFreshInput || _requiresNeutral) {
+      return const CarInput(emergencyStop: true);
     }
     return _latest;
   }

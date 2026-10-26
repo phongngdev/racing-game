@@ -316,6 +316,8 @@ void main() {
       expect(game.supportsGraphicsSelection, isTrue);
       expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
       expect(find.text('Kenney'), findsOneWidget);
+      expect(find.textContaining('km/h'), findsWidgets);
+      expect(find.textContaining('u/s'), findsNothing);
       final red = game.simulation.red;
       red.position.setValues(500, 1800);
       red.heading = 0.4;

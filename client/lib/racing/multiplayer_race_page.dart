@@ -13,6 +13,7 @@ import 'lap/lap_race_session.dart';
 import 'lap/lap_race_track.dart';
 import 'multiplayer_room_session.dart';
 import 'simulation/race_simulation.dart';
+import 'speed_units.dart';
 import 'race_mode.dart';
 import 'race_session.dart';
 import 'race_progress.dart';
@@ -132,6 +133,8 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       // Sprint HUD refreshes via the existing 100 ms timer; physics still runs every frame.
       onFrameUpdate: (dt) =>
           _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
+      effectsClockAdvances: () =>
+          _race.phase == RacePhase.racing || _race.phase == RacePhase.finished,
     );
     if (_game.supportsGraphicsSelection) {
       unawaited(
@@ -1240,13 +1243,13 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
         children: [
           Expanded(
             child: Text(
-              'P1 ${_snapshot.value.redSpeed.round()} u/s',
+              'P1 ${speedKmh(_snapshot.value.redSpeed)} km/h',
               style: const TextStyle(color: Color(0xFFFF696E)),
             ),
           ),
           Expanded(
             child: Text(
-              'P2 ${_snapshot.value.blueSpeed.round()} u/s',
+              'P2 ${speedKmh(_snapshot.value.blueSpeed)} km/h',
               style: const TextStyle(color: Color(0xFF68A4FF)),
             ),
           ),

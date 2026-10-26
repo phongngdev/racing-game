@@ -14,6 +14,7 @@ import 'input/car_input.dart';
 import 'input/remote_input_source.dart';
 import 'input/selectable_input_source.dart';
 import 'simulation/race_simulation.dart';
+import 'speed_units.dart';
 
 enum RacingPageMode { prototype, practice }
 
@@ -635,7 +636,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
           Expanded(
             child: _SpeedReadout(
               label: 'PLAYER 1 · RED',
-              value: _snapshot.value.redSpeed.round(),
+              value: speedKmh(_snapshot.value.redSpeed),
               color: const Color(0xFFFF696E),
             ),
           ),
@@ -643,7 +644,7 @@ class _RacingPageState extends State<RacingPage> with WidgetsBindingObserver {
           Expanded(
             child: _SpeedReadout(
               label: 'PLAYER 2 · BLUE',
-              value: _snapshot.value.blueSpeed.round(),
+              value: speedKmh(_snapshot.value.blueSpeed),
               color: const Color(0xFF68A4FF),
             ),
           ),
@@ -911,7 +912,7 @@ class _SpeedReadout extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.only(bottom: 2),
                 child: Text(
-                  'u/s',
+                  'km/h',
                   style: TextStyle(color: Color(0xFF9AA49C), fontSize: 10),
                 ),
               ),

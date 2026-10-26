@@ -23,6 +23,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult;
 
 import 'input/car_input.dart';
+import 'graphics/race_effects_component.dart';
 import 'graphics/race_scenery_component.dart';
 import 'graphics/race_surface_patches.dart';
 import 'graphics/race_surface_textures.dart';
@@ -50,6 +51,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     this.sprintTrack,
     SprintGraphicsAssets? sprintGraphicsAssets,
     this.onFrameUpdate,
+    this.effectsClockAdvances,
   }) : super(
          camera: CameraComponent.withFixedResolution(
            width: RaceTrackLayout.worldWidth,
@@ -86,6 +88,14 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
             else if (lapTrack != null)
               RaceSceneryComponent.lap(_graphicsAssets),
           ];
+    _raceEffects = RaceEffectsComponent(
+      simulation: simulation,
+      inputSource: inputSource,
+      drivableWalls: (track?.walls ?? RaceTrackLayout.walls)
+          .map((wall) => wall.$2)
+          .toList(growable: false),
+      enabled: !supportsRaceGraphics,
+    );
     _redCarComponent = CarComponent(
       state: simulation.red,
       color: const Color(0xFFE34B50),
@@ -98,14 +108,23 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
       isFinished: () => simulation.isPlayerFinished(PlayerId.blue),
       graphicsAssets: _graphicsAssets,
     );
+    for (final scenery in _sceneryComponents) {
+      scenery.priority = 10;
+    }
+    _raceEffects.priority = 20;
+    _redCarComponent.priority = 30;
+    _blueCarComponent.priority = 30;
+    _raceEffects.overlay.priority = 40;
     world.addAll([
       if (_sprintTrackComponent case final component?)
         component
       else
         _lapTrackComponent,
       ..._sceneryComponents,
+      _raceEffects,
       _redCarComponent,
       _blueCarComponent,
+      _raceEffects.overlay,
     ]);
     if (sprintTrack case final track?) {
       camera.viewport = FixedSizeViewport(1, 1);
@@ -133,6 +152,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   late final SprintTrackComponent? _sprintTrackComponent;
   late final TrackComponent _lapTrackComponent;
   late final List<RaceSceneryComponent> _sceneryComponents;
+  late final RaceEffectsComponent _raceEffects;
   late final CarComponent _redCarComponent;
   late final CarComponent _blueCarComponent;
   SprintGraphicsStyle _graphicsStyle = SprintGraphicsStyle.legacy;
@@ -143,6 +163,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   List<SprintCameraRig> _cameraRigs = [];
   int _cameraResetRevision = -1;
   final void Function(double frameSeconds)? onFrameUpdate;
+  final bool Function()? effectsClockAdvances;
   double _snapshotElapsed = 0;
 
   bool setGraphicsStyle(SprintGraphicsStyle style) {
@@ -156,6 +177,9 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     for (final component in _sceneryComponents) {
       component.style = style;
     }
+    _raceEffects
+      ..useKenneyVehicleGeometry = style == SprintGraphicsStyle.kenney
+      ..enabled = style == SprintGraphicsStyle.kenney;
     _redCarComponent.style = style;
     _blueCarComponent.style = style;
     return true;
@@ -249,6 +273,8 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     } else {
       frameUpdate(dt);
     }
+    _raceEffects.clockAdvances =
+        effectsClockAdvances?.call() ?? simulation.isRunning;
     simulation.updateRenderPoses();
     _updateCameras(dt);
     super.update(dt);

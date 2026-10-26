@@ -10,6 +10,7 @@ class CarInput {
     this.brake = 0,
     this.steering = 0,
     this.horn = false,
+    this.emergencyStop = false,
   });
 
   final double throttle;
@@ -19,6 +20,10 @@ class CarInput {
   final double brake;
   final double steering;
   final bool horn;
+
+  /// Stops immediately when a local controller/input stream becomes unsafe.
+  /// This field is never serialized over the multiplayer protocol.
+  final bool emergencyStop;
 }
 
 abstract interface class InputSource {

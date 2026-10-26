@@ -44,7 +44,7 @@ class SelectableInputSource implements InputSource {
         _timeoutReported = true;
         onPhoneTimeout?.call();
       }
-      return const CarInput();
+      return const CarInput(emergencyStop: true);
     }
     _timeoutReported = false;
     return remote.inputFor(player);
