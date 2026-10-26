@@ -75,7 +75,7 @@ class AudioSettingsController extends ChangeNotifier {
 
   final _prefs = SharedPreferencesAsync();
   double master = 0.82;
-  double engine = 0.78;
+  double engine = 0.6;
   double effects = 0.9;
   bool vibration = true;
   bool _loaded = false;
@@ -135,7 +135,6 @@ class RaceAudioService {
   Future<void>? _loading;
   final Map<String, AudioSource> _sources = {};
   final Map<PlayerId, List<SoundHandle>> _engines = {};
-  final Map<PlayerId, SoundHandle> _skids = {};
   final Set<SoundHandle> _loops = {};
   final Map<PlayerId, bool> _enginePaused = {};
   final Map<PlayerId, double> _rpm = {PlayerId.red: 0.08, PlayerId.blue: 0.08};
@@ -169,11 +168,7 @@ class RaceAudioService {
         'collision/car_heavy.ogg',
         'collision/dirt_thud.ogg',
         'collision/dirt_thud_2.ogg',
-        'surface/grit_1.ogg',
-        'surface/grit_2.ogg',
-        'surface/grit_3.ogg',
         'surface/edge_debris.ogg',
-        'surface/tire_skid.wav',
         'surface/road_roll.wav',
         'race/countdown_tick.ogg',
         'race/countdown_tick_alt.ogg',
@@ -276,6 +271,7 @@ class RaceAudioService {
       }
       final level =
           AudioSettingsController.shared.engine *
+          0.55 *
           gain *
           (player == PlayerId.red ? 0.94 : 0.86);
       final mixes = [mix.idle, mix.mid, mix.high];
@@ -365,7 +361,6 @@ class RaceAudioService {
     }
     _loops.clear();
     _engines.clear();
-    _skids.clear();
     for (final handle in _oneshots.toList()) {
       if (_soloud.isInitialized) unawaited(_soloud.stop(handle));
     }
@@ -379,11 +374,9 @@ class RaceAudioDirector {
   final RaceSimulation simulation;
   final InputSource input;
   final RaceAudioService _audio = RaceAudioService.instance;
-  final Map<PlayerId, double> _skid = {PlayerId.red: 0, PlayerId.blue: 0};
   final Map<PlayerId, SoundHandle> _roadRolling = {};
   final Map<(PlayerId, String), bool> _loopPaused = {};
   int _collisionVariation = 0;
-  double _gritClock = 0;
   bool _disposed = false;
 
   void preload() => unawaited(_audio.preload());
@@ -486,24 +479,8 @@ class RaceAudioDirector {
       input: input,
       phase: phase,
     );
-    final now = <PlayerId, double>{};
     for (final player in PlayerId.values) {
       final car = player == PlayerId.red ? simulation.red : simulation.blue;
-      final control = input.inputFor(player);
-      final target =
-          (car.speed > 28 &&
-              (control.brake > 0.12 ||
-                  (control.steering.abs() > 0.62 && car.speed > 60)))
-          ? ((car.speed - 28) / 145).clamp(0.0, 1.0) *
-                (0.45 + control.brake * 0.55)
-          : 0.0;
-      final prior = _skid[player] ?? 0;
-      final value =
-          prior +
-          (target - prior) *
-              (1 - math.exp(-dt.clamp(0.0, 0.1) * (target > prior ? 8 : 3.4)));
-      _skid[player] = value;
-      now[player] = value;
       final rolling = phase == RaceAudioPhase.racing
           ? ((car.speed - 9) / 150).clamp(0.0, 1.0)
           : 0.0;
@@ -536,55 +513,6 @@ class RaceAudioDirector {
           _loopPaused[(player, 'road')] = pause;
         }
       }
-      if (phase == RaceAudioPhase.racing && value > 0.025) {
-        var handle = _audio._skids[player];
-        if (handle == null) {
-          final source = _audio._sources['surface/tire_skid.wav'];
-          if (source != null && _audio._ready) {
-            handle = SoLoud.instance.play(
-              source,
-              looping: true,
-              volume: 0,
-              pan: _pan(player),
-            );
-            _audio._skids[player] = handle;
-            _audio._loops.add(handle);
-          }
-        }
-        if (handle != null) {
-          SoLoud.instance.setVolume(
-            handle,
-            value * 0.58 * AudioSettingsController.shared.effects,
-          );
-          SoLoud.instance.setRelativePlaySpeed(handle, 0.84 + car.speed / 250);
-          if (_loopPaused[(player, 'skid')] == true) {
-            SoLoud.instance.setPause(handle, false);
-            _loopPaused[(player, 'skid')] = false;
-          }
-        }
-      } else if (_audio._skids[player] case final handle?) {
-        SoLoud.instance.setVolume(handle, 0);
-        if (_loopPaused[(player, 'skid')] != true) {
-          SoLoud.instance.setPause(handle, true);
-          _loopPaused[(player, 'skid')] = true;
-        }
-      }
-    }
-    for (final player in PlayerId.values) {
-      final value = now[player]!;
-      if (value > 0.025) _gritClock += dt;
-    }
-    if (_gritClock >= 0.24 && (_skid.values.any((v) => v > 0.15))) {
-      _gritClock %= 0.24;
-      final player = (_skid[PlayerId.red]! >= _skid[PlayerId.blue]!)
-          ? PlayerId.red
-          : PlayerId.blue;
-      final choice = DateTime.now().microsecondsSinceEpoch % 3 + 1;
-      _audio.play(
-        'surface/grit_$choice.ogg',
-        volume: _skid[player]! * 0.55,
-        pan: _pan(player),
-      );
     }
   }
 
