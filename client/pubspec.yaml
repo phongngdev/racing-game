@@ -73,6 +73,7 @@ flutter:
   assets:
     - assets/images/racing/vehicles/
     - assets/images/racing/scenery/
+    - assets/images/racing/surfaces/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

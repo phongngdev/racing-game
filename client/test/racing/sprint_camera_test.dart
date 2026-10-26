@@ -129,6 +129,19 @@ void main() {
     expect(assets['scenery/rock1.png'], isNotNull);
     expect(tester.takeException(), isNull);
 
+    final redPosition = simulation.red.position.clone();
+    final bluePosition = simulation.blue.position.clone();
+    final cameraPosition = game.camera.viewfinder.position.clone();
+    final cameraZoom = game.camera.viewfinder.zoom;
+    final resetRevision = simulation.resetRevision;
+    expect(game.setGraphicsStyle(SprintGraphicsStyle.legacy), isTrue);
+    expect(game.setGraphicsStyle(SprintGraphicsStyle.kenney), isTrue);
+    expect(simulation.red.position, redPosition);
+    expect(simulation.blue.position, bluePosition);
+    expect(game.camera.viewfinder.position, cameraPosition);
+    expect(game.camera.viewfinder.zoom, cameraZoom);
+    expect(simulation.resetRevision, resetRevision);
+
     await tester.pumpWidget(const SizedBox.shrink());
     simulation.dispose();
     snapshot.dispose();
