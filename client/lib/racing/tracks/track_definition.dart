@@ -27,6 +27,8 @@ class TrackDefinition {
     required this.finish,
     required this.finishStation,
     required List<double> stations,
+    this.seed,
+    this.generatorVersion,
   }) : centerline = List.unmodifiable(centerline),
        roadRects = List.unmodifiable(roadRects),
        walls = List.unmodifiable(walls),
@@ -39,6 +41,8 @@ class TrackDefinition {
     required Rect worldBounds,
     required List<TrackPoint> centerline,
     double roadWidth = 200,
+    String? seed,
+    int? generatorVersion,
   }) {
     if (centerline.length < 2 ||
         !roadWidth.isFinite ||
@@ -107,7 +111,13 @@ class TrackDefinition {
     final firstLength = stations[1];
     final tx = (second.x - first.x) / firstLength;
     final ty = (second.y - first.y) / firstLength;
-    final heading = math.atan2(ty, tx);
+    final heading = tx > 0
+        ? 0.0
+        : tx < 0
+        ? math.pi
+        : ty > 0
+        ? math.pi / 2
+        : -math.pi / 2;
     SpawnPose spawn(double offset) => SpawnPose(
       TrackPoint(
         first.x + tx * 60 - ty * offset,
@@ -147,6 +157,8 @@ class TrackDefinition {
       ),
       finishStation: stations.last - 100,
       stations: stations,
+      seed: seed,
+      generatorVersion: generatorVersion,
     );
     if (!definition.isDrivable(definition.redSpawn.position) ||
         !definition.isDrivable(definition.blueSpawn.position)) {
@@ -169,6 +181,8 @@ class TrackDefinition {
   final TrackGate finish;
   final double finishStation;
   final List<double> stations;
+  final String? seed;
+  final int? generatorVersion;
   double get gridStation => 60;
   double get cameraShortSide => 480;
   double get cameraLookAhead => 90;
