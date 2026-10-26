@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui'
     show
@@ -42,6 +43,7 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     required this.onKeyboardEvent,
     this.lapTrack,
     this.sprintTrack,
+    SprintGraphicsAssets? sprintGraphicsAssets,
     this.onFrameUpdate,
   }) : super(
          camera: CameraComponent.withFixedResolution(
@@ -52,7 +54,9 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
     final track = sprintTrack;
     final usesFixedSprint =
         track != null && identical(track, FixedTracks.sprint);
-    _graphicsAssets = usesFixedSprint ? SprintGraphicsAssets() : null;
+    _graphicsAssets = usesFixedSprint
+        ? sprintGraphicsAssets ?? SprintGraphicsAssets()
+        : null;
     camera.viewfinder.position = Vector2(
       RaceTrackLayout.worldWidth / 2,
       RaceTrackLayout.worldHeight / 2,
@@ -106,6 +110,10 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   final LapRaceTrack? lapTrack;
   final TrackDefinition? sprintTrack;
   late final SprintGraphicsAssets? _graphicsAssets;
+  final Completer<void> _graphicsPreloadCompleter = Completer<void>();
+  Future<void> get graphicsPreload => _graphicsPreloadCompleter.future;
+  bool get isGraphicsPreloading =>
+      _graphicsAssets != null && !_graphicsPreloadCompleter.isCompleted;
   late final SprintTrackComponent? _sprintTrackComponent;
   late final List<SprintSceneryComponent> _sceneryComponents;
   late final CarComponent _redCarComponent;
@@ -137,7 +145,29 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
-    await _graphicsAssets?.preload();
+    final assets = _graphicsAssets;
+    if (assets == null) {
+      _graphicsPreloadCompleter.complete();
+      return;
+    }
+    unawaited(_preloadFixedSprintGraphics(assets));
+  }
+
+  Future<void> _preloadFixedSprintGraphics(
+    SprintGraphicsAssets assets,
+  ) async {
+    try {
+      await assets.preload();
+      if (supportsKenneyGraphics) {
+        setSprintGraphicsStyle(SprintGraphicsStyle.kenney);
+      }
+    } catch (_) {
+      // Optional graphics must not prevent Fixed Sprint from starting.
+    } finally {
+      if (!_graphicsPreloadCompleter.isCompleted) {
+        _graphicsPreloadCompleter.complete();
+      }
+    }
   }
 
   @override

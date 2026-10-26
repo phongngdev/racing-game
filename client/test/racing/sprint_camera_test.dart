@@ -1,4 +1,6 @@
-import 'package:flame/camera.dart';
+import 'dart:ui' as ui;
+
+import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,11 +9,131 @@ import 'package:racing_client/racing/apex_racing_game.dart';
 import 'package:racing_client/racing/input/car_input.dart';
 import 'package:racing_client/racing/simulation/race_simulation.dart';
 import 'package:racing_client/racing/sprint/sprint_camera.dart';
+import 'package:racing_client/racing/sprint/sprint_graphics_assets.dart';
 import 'package:racing_client/racing/sprint/sprint_race_session.dart';
 import 'package:racing_client/racing/tracks/track_definition.dart';
 import 'package:racing_client/racing/tracks/sprint_track_generator.dart';
 
 void main() {
+  testWidgets('failed car preload safely keeps Fixed Sprint on Legacy', (
+    tester,
+  ) async {
+    final assets = SprintGraphicsAssets(
+      loadSprite: (assetPath) async {
+        if (assetPath == 'racing/vehicles/car_red_1.png' ||
+            assetPath == 'racing/scenery/tree_large.png') {
+          throw StateError('Simulated optional asset failure.');
+        }
+        return _solidTestSprite();
+      },
+    );
+    final track = FixedTracks.sprint;
+    final simulation = RaceSimulation(track: track);
+    final snapshot = ValueNotifier(const RaceSnapshot());
+    final game = ApexRacingGame(
+      simulation: simulation,
+      inputSource: KeyboardInputSource(),
+      snapshot: snapshot,
+      onKeyboardEvent: (_) => KeyEventResult.ignored,
+      sprintTrack: track,
+      sprintGraphicsAssets: assets,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(width: 900, height: 600, child: GameWidget(game: game)),
+      ),
+    );
+    await tester.runAsync(() async {
+      await game.loaded.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Timed out waiting for game.loaded'),
+      );
+      await game.ready().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Timed out waiting for game.ready'),
+      );
+      await game.graphicsPreload.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Timed out waiting for graphics'),
+      );
+    });
+    await tester.pump();
+    game.pauseEngine();
+
+    expect(game.supportsKenneyGraphics, isFalse);
+    expect(game.graphicsStyle, SprintGraphicsStyle.legacy);
+    expect(game.setSprintGraphicsStyle(SprintGraphicsStyle.kenney), isFalse);
+    expect(assets['vehicles/car_red_1.png'], isNull);
+    expect(assets['vehicles/car_blue_1.png'], isNotNull);
+    expect(assets['scenery/tree_large.png'], isNull);
+    expect(assets['scenery/rock1.png'], isNotNull);
+    expect(
+      game.world.children.whereType<CarComponent>().every(
+        (component) => component.style == SprintGraphicsStyle.legacy,
+      ),
+      isTrue,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    simulation.dispose();
+    snapshot.dispose();
+  });
+
+  testWidgets('failed scenery image is skipped while Kenney stays active', (
+    tester,
+  ) async {
+    final assets = SprintGraphicsAssets(
+      loadSprite: (assetPath) async {
+        if (assetPath == 'racing/scenery/tree_large.png') {
+          throw StateError('Simulated scenery image failure.');
+        }
+        return _solidTestSprite();
+      },
+    );
+    final track = FixedTracks.sprint;
+    final simulation = RaceSimulation(track: track);
+    final snapshot = ValueNotifier(const RaceSnapshot());
+    final game = ApexRacingGame(
+      simulation: simulation,
+      inputSource: KeyboardInputSource(),
+      snapshot: snapshot,
+      onKeyboardEvent: (_) => KeyEventResult.ignored,
+      sprintTrack: track,
+      sprintGraphicsAssets: assets,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(width: 900, height: 600, child: GameWidget(game: game)),
+      ),
+    );
+    await tester.runAsync(() async {
+      await game.loaded.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Timed out waiting for game.loaded'),
+      );
+      await game.ready().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Timed out waiting for game.ready'),
+      );
+      await game.graphicsPreload.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Timed out waiting for graphics'),
+      );
+    });
+    await tester.pump();
+    game.pauseEngine();
+
+    expect(game.supportsKenneyGraphics, isTrue);
+    expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+    expect(assets['scenery/tree_large.png'], isNull);
+    expect(assets['scenery/rock1.png'], isNotNull);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    simulation.dispose();
+    snapshot.dispose();
+  });
+
   test('panes partition landscape and portrait without overlap', () {
     for (final size in const [Size(1200, 600), Size(600, 900), Size(1, 1)]) {
       final panes = sprintViewports(size.width, size.height);
@@ -173,4 +295,13 @@ void main() {
       snapshot.dispose();
     },
   );
+}
+
+Future<Sprite> _solidTestSprite() async {
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder).drawRect(
+    const ui.Rect.fromLTWH(0, 0, 4, 4),
+    ui.Paint()..color = const ui.Color(0xFFFFFFFF),
+  );
+  return Sprite(await recorder.endRecording().toImage(4, 4));
 }
