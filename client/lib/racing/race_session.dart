@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'simulation/race_simulation.dart';
 import 'tracks/track_geometry.dart';
 import 'race_progress.dart';
 import 'race_rules.dart';
+import 'audio/race_audio.dart';
 
 enum RacePhase { ready, countdown, racing, paused, finished }
 
@@ -28,6 +30,15 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
        _blue = blueTracker {
     _capturePositions();
     setGameRunning(true);
+  }
+
+  final _audioEvents = StreamController<RaceFeedbackEvent>.broadcast();
+  Stream<RaceFeedbackEvent> get audioEvents => _audioEvents.stream;
+
+  void _emitAudio(String event, {PlayerId? player, int? count}) {
+    if (!_audioEvents.isClosed) {
+      _audioEvents.add(RaceFeedbackEvent(event, player: player, count: count));
+    }
   }
 
   final RaceSimulation simulation;
@@ -94,6 +105,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
     _countdownRemaining = config.countdownSeconds;
     _resumeAfterCountdown = false;
     _phase = RacePhase.countdown;
+    _emitAudio('countdown', count: countdownNumber);
     setGameRunning(true);
     notifyListeners();
     return true;
@@ -113,12 +125,16 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
       if (elapsed < _countdownRemaining) {
         final previousNumber = countdownNumber;
         _countdownRemaining -= elapsed;
+        if (countdownNumber != previousNumber) {
+          _emitAudio('countdown', count: countdownNumber);
+        }
         if (countdownNumber != previousNumber) notifyListeners();
         return;
       }
       final physicsElapsed = elapsed - _countdownRemaining;
       _countdownRemaining = 0;
       _phase = RacePhase.racing;
+      _emitAudio('go');
       _resumeAfterCountdown = false;
       _goRemaining = 0.75;
       simulation.setRunning(true);
@@ -165,6 +181,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
       _phase = RacePhase.countdown;
       _countdownRemaining = config.countdownSeconds;
       _resumeAfterCountdown = true;
+      _emitAudio('countdown', count: countdownNumber);
       _message = null;
     } else {
       _phase = previous ?? RacePhase.ready;
@@ -275,6 +292,11 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
     if (finishers.isEmpty) return;
 
     final accepted = <(PlayerId, RaceProgressEvent)>[];
+    for (final entry in events) {
+      if (!entry.$2.finished && !entry.$2.invalidatedProgress) {
+        _emitAudio('checkpoint', player: entry.$1);
+      }
+    }
     for (final finisher in finishers) {
       final eventTime = finisher.$2.eventTime;
       if (_finishDeadline != null && eventTime > _finishDeadline!) {
@@ -282,6 +304,7 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
         simulation.finishPlayer(finisher.$1);
       } else {
         accepted.add(finisher);
+        _emitAudio('finish', player: finisher.$1);
         simulation.finishPlayer(finisher.$1);
       }
     }
@@ -322,6 +345,13 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
 
   void _finishSession() {
     if (_phase == RacePhase.finished) return;
+    if (_isDraw) {
+      _emitAudio('draw');
+    } else if (_winner != null) {
+      _emitAudio('victory', player: _winner);
+    } else {
+      _emitAudio('dnf');
+    }
     _phase = RacePhase.finished;
     _pausedFrom = null;
     _resumeAfterCountdown = false;
@@ -343,4 +373,10 @@ class RaceSession<P extends RacePlayerProgress> extends ChangeNotifier {
 
   RacePlayerTracker<P> _trackerFor(PlayerId player) =>
       player == PlayerId.red ? _red : _blue;
+
+  @override
+  void dispose() {
+    _audioEvents.close();
+    super.dispose();
+  }
 }

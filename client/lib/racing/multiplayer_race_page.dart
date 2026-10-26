@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../controller/controller_protocol.dart';
 import 'apex_racing_game.dart';
+import 'audio/race_audio.dart';
 import 'input/car_input.dart';
 import 'input/multiplayer_input_source.dart';
 import 'lap/lap_player_tracker.dart';
@@ -56,6 +58,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   late final RaceSession<RacePlayerProgress> _race;
   late final ApexRacingGame _game;
   StreamSubscription<CollisionEvent>? _collisions;
+  StreamSubscription<RaceFeedbackEvent>? _raceAudioFeedback;
   Timer? _refreshTimer;
   String? _qrSlot;
   bool _hasBeenFocused = false;
@@ -135,6 +138,14 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
           _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
       effectsClockAdvances: () =>
           _race.phase == RacePhase.racing || _race.phase == RacePhase.finished,
+      audioEvents: _race.audioEvents,
+      audioPhaseProvider: () => switch (_race.phase) {
+        RacePhase.ready => RaceAudioPhase.ready,
+        RacePhase.countdown => RaceAudioPhase.countdown,
+        RacePhase.racing => RaceAudioPhase.racing,
+        RacePhase.paused => RaceAudioPhase.paused,
+        RacePhase.finished => RaceAudioPhase.finished,
+      },
     );
     if (_game.supportsGraphicsSelection) {
       unawaited(
@@ -151,6 +162,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     _focusNode.addListener(_focusChanged);
     widget.session.addListener(_sessionChanged);
     _race.addListener(_raceChanged);
+    _raceAudioFeedback = _race.audioEvents.listen(_sendRaceHaptic);
     _collisions = _simulation.collisionEvents.listen(_handleCollision);
     _refreshTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) _hudRevision.value++;
@@ -244,6 +256,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
 
   void _handleCollision(CollisionEvent event) {
     if (!_simulation.isRunning) return;
+    if (!AudioSettingsController.shared.vibration) return;
     for (final player in event.players) {
       final slotId = player == PlayerId.red ? 'p1' : 'p2';
       final slot = widget.session.slot(slotId);
@@ -251,12 +264,31 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       if (slot?.source == 'phone' &&
           slot?.connected == true &&
           remote.hasFreshInput) {
-        widget.session.sendCollision(slotId);
+        widget.session.sendCollision(slotId, intensity: event.intensity);
+      }
+    }
+  }
+
+  void _sendRaceHaptic(RaceFeedbackEvent event) {
+    if (!AudioSettingsController.shared.vibration) return;
+    for (final player in PlayerId.values) {
+      if (event.player != null && event.player != player) {
+        continue;
+      }
+      if (!ControllerEvents.isHapticCue(event.event)) continue;
+      final slotId = player == PlayerId.red ? 'p1' : 'p2';
+      final slot = widget.session.slot(slotId);
+      if (slot?.source == 'phone' && slot?.connected == true) {
+        widget.session.sendHaptic(slotId, event.event);
       }
     }
   }
 
   void _toggle() {
+    if (_race.phase == LapRacePhase.ready ||
+        _race.phase == LapRacePhase.paused) {
+      unawaited(_game.audioDirector.unlock());
+    }
     switch (_race.phase) {
       case LapRacePhase.ready:
         if (_race.canStartRace) {
@@ -340,6 +372,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
     widget.session.setGameRunning(false);
     _input.clear();
     _race.removeListener(_raceChanged);
+    _raceAudioFeedback?.cancel();
     _race.dispose();
     _refreshTimer?.cancel();
     _hudRevision.dispose();
@@ -599,7 +632,13 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   Widget _rightPanel() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _raceActionButton(),
+      Row(
+        children: [
+          Expanded(child: _raceActionButton()),
+          const SizedBox(width: 8),
+          const RaceAudioSettingsButton(),
+        ],
+      ),
       const SizedBox(height: 10),
       Expanded(
         child: SingleChildScrollView(

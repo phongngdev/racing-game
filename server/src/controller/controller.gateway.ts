@@ -343,6 +343,10 @@ export class ControllerGateway
     const record = this.asRecord(data);
     const generation = record?.['generation'];
     if (context?.role !== 'game' || !Number.isSafeInteger(generation)) return;
+    const payload = {
+      generation,
+      ...this.validCollisionIntensity(record?.['intensity']),
+    };
     if (context.version === 1) {
       const phone = this.clients.get('phone');
       if (
@@ -356,7 +360,7 @@ export class ControllerGateway
       const now = performance.now();
       if (now - this.lastCollisionAtMs < 250) return;
       this.lastCollisionAtMs = now;
-      this.send(phone, 'collision', { generation });
+      this.send(phone, 'collision', payload);
       return;
     }
     if (context.version === 3) {
@@ -387,7 +391,7 @@ export class ControllerGateway
       this.send(phone, 'collision', {
         roomId: room.id,
         slotId,
-        generation,
+        ...payload,
       });
       return;
     }
@@ -407,7 +411,63 @@ export class ControllerGateway
     const now = performance.now();
     if (now - sockets.lastCollisionAtMs < 250) return;
     sockets.lastCollisionAtMs = now;
-    this.send(sockets.phone, 'collision', { generation });
+    this.send(sockets.phone, 'collision', payload);
+  }
+
+  @SubscribeMessage('haptic')
+  onHaptic(
+    @ConnectedSocket() client: WebSocket,
+    @MessageBody() data: unknown,
+  ): void {
+    const context = this.contexts.get(client);
+    const record = this.asRecord(data);
+    const generation = record?.['generation'];
+    const event = record?.['event'];
+    if (
+      context?.role !== 'game' ||
+      !Number.isSafeInteger(generation) ||
+      !this.isHapticCue(event)
+    ) return;
+
+    if (context.version === 1) {
+      const phone = this.clients.get('phone');
+      if (
+        this.clients.get('game') !== client ||
+        !phone ||
+        phone.readyState !== phone.OPEN ||
+        this.generations.get(phone) !== generation
+      ) return;
+      this.send(phone, 'haptic', { generation, event });
+      return;
+    }
+    if (context.version === 3) {
+      const slotId = record?.['slotId'];
+      if (!isMultiplayerSlot(slotId) || record?.['roomId'] !== context.roomId)
+        return;
+      const room = this.rooms.get(context.roomId);
+      const sockets = context.roomId
+        ? this.roomSockets.get(context.roomId)
+        : undefined;
+      const phone = sockets?.phones.get(slotId);
+      const slot = room?.slots[slotId];
+      if (
+        !room || !slot || sockets?.game !== client || !phone ||
+        phone.readyState !== phone.OPEN || slot.generation !== generation ||
+        !slot.connected
+      ) return;
+      this.send(phone, 'haptic', { roomId: room.id, slotId, generation, event });
+      return;
+    }
+    const session = this.pairings.get(context.sessionId);
+    const sockets = context.sessionId
+      ? this.pairingSockets.get(context.sessionId)
+      : undefined;
+    if (
+      !session || !sockets || sockets.game !== client ||
+      sockets.phone?.readyState !== sockets.phone?.OPEN ||
+      session.generation !== generation
+    ) return;
+    this.send(sockets.phone, 'haptic', { generation, event });
   }
 
   @SubscribeMessage('session_end')
@@ -973,6 +1033,22 @@ export class ControllerGateway
     return typeof value === 'object' && value !== null && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private validCollisionIntensity(value: unknown): { intensity?: number } {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return {};
+    return { intensity: Math.max(0, Math.min(1, value)) };
+  }
+
+  private isHapticCue(value: unknown): value is string {
+    return (
+      value === 'checkpoint' ||
+      value === 'go' ||
+      value === 'finish' ||
+      value === 'victory' ||
+      value === 'draw' ||
+      value === 'dnf'
+    );
   }
 
   private isControllerStage(value: unknown): value is ControllerStage {

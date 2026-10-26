@@ -7,6 +7,7 @@ import 'package:racing_client/racing/lap/lap_race_rules.dart';
 import 'package:racing_client/racing/lap/lap_race_session.dart';
 import 'package:racing_client/racing/lap/lap_race_track.dart';
 import 'package:racing_client/racing/simulation/race_simulation.dart';
+import 'package:racing_client/racing/audio/race_audio.dart';
 
 void main() {
   test('host ending before any finish records two DNF and no winner', () {
@@ -61,6 +62,31 @@ void main() {
     expect(fixture.simulation.isRunning, isFalse);
     race.advanceFrame(3);
     expect(race.phase, LapRacePhase.racing);
+  });
+
+  test('race feedback announces the countdown, GO, and terminal DNF', () async {
+    final fixture = _RaceFixture();
+    addTearDown(fixture.dispose);
+    final cues = <RaceFeedbackEvent>[];
+    final subscription = fixture.race.audioEvents.listen(cues.add);
+    addTearDown(subscription.cancel);
+
+    expect(fixture.race.startCountdown(), isTrue);
+    fixture.race.advanceFrame(1.1);
+    fixture.race.advanceFrame(1.0);
+    fixture.race.advanceFrame(0.9);
+    await Future<void>.delayed(Duration.zero);
+    expect(cues.map((cue) => (cue.event, cue.count)).toList(), [
+      ('countdown', 3),
+      ('countdown', 2),
+      ('countdown', 1),
+      ('go', null),
+    ]);
+
+    fixture.race.pause();
+    fixture.race.endEarly();
+    await Future<void>.delayed(Duration.zero);
+    expect(cues.last.event, 'dnf');
   });
 
   test('controller loss aborts countdown and requires a fresh start', () {

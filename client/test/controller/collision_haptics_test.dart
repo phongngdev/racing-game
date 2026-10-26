@@ -68,6 +68,54 @@ void main() {
     },
   );
 
+  test('collision intensity scales vibration duration and strength', () async {
+    final calls = <(int, int?)>[];
+    final haptics = CollisionHaptics(
+      hasVibrator: () async => true,
+      hasAmplitudeControl: () async => true,
+      vibrate: ({required int duration, int? amplitude}) async {
+        calls.add((duration, amplitude));
+      },
+      cancel: () async {},
+      log: (_) {},
+    );
+    await haptics.playForSession(
+      foreground: true,
+      currentGeneration: 2,
+      eventGeneration: 2,
+      intensity: 1,
+    );
+    expect(calls, [(125, 280)]);
+  });
+
+  test('finish cue is a double pulse; GO is a single pulse', () async {
+    final calls = <(int, int?)>[];
+    final haptics = CollisionHaptics(
+      hasVibrator: () async => true,
+      hasAmplitudeControl: () async => true,
+      vibrate: ({required int duration, int? amplitude}) async {
+        calls.add((duration, amplitude));
+      },
+      cancel: () async {},
+      log: (_) {},
+    );
+    await haptics.playCueForSession(
+      event: 'go',
+      foreground: true,
+      currentGeneration: 4,
+      eventGeneration: 4,
+    );
+    expect(calls, [(68, 155)]);
+    calls.clear();
+    await haptics.playCueForSession(
+      event: 'finish',
+      foreground: true,
+      currentGeneration: 4,
+      eventGeneration: 4,
+    );
+    expect(calls, [(62, 230), (52, 205)]);
+  });
+
   test('reports unsupported hardware without calling the motor', () async {
     var pulses = 0;
     final haptics = CollisionHaptics(

@@ -29,10 +29,22 @@ class ControllerMessage {
 }
 
 abstract final class ControllerEvents {
+  static const hapticCues = {
+    'checkpoint',
+    'go',
+    'finish',
+    'victory',
+    'draw',
+    'dnf',
+  };
+
+  static bool isHapticCue(String event) => hapticCues.contains(event);
+
   static const register = 'register';
   static const registered = 'registered';
   static const input = 'input';
   static const collision = 'collision';
+  static const haptic = 'haptic';
   static const status = 'status';
   static const unavailable = 'unavailable';
   static const ping = 'ping';
