@@ -20,6 +20,7 @@ import 'tracks/track_definition.dart';
 import 'sprint/sprint_race_session.dart';
 import 'sprint/sprint_player_tracker.dart';
 import 'sprint/sprint_camera.dart';
+import 'sprint/sprint_graphics_assets.dart';
 
 class MultiplayerRacePage extends StatefulWidget {
   const MultiplayerRacePage({
@@ -70,6 +71,19 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
 
   static const _track = LapRaceTrack.standard;
   TrackDefinition get _sprintTrack => widget.sprintTrack ?? FixedTracks.sprint;
+  bool get _isFixedSprint =>
+      widget.mode == RaceMode.sprint &&
+      identical(_sprintTrack, FixedTracks.sprint);
+
+  void _selectSprintGraphics(SprintGraphicsStyle style) {
+    if (!_game.setSprintGraphicsStyle(style)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không tải được ảnh xe Kenney.')),
+      );
+      return;
+    }
+    setState(() {});
+  }
 
   @override
   void initState() {
@@ -378,6 +392,25 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                             ),
                           ),
                         ),
+                      ),
+                    ],
+                    if (_isFixedSprint) ...[
+                      const SizedBox(width: 12),
+                      SegmentedButton<SprintGraphicsStyle>(
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(
+                            value: SprintGraphicsStyle.legacy,
+                            label: Text('Legacy'),
+                          ),
+                          ButtonSegment(
+                            value: SprintGraphicsStyle.kenney,
+                            label: Text('Kenney'),
+                          ),
+                        ],
+                        selected: {_game.graphicsStyle},
+                        onSelectionChanged: (selection) =>
+                            _selectSprintGraphics(selection.single),
                       ),
                     ],
                     const Spacer(),
