@@ -129,14 +129,15 @@ class ApexRacingGame extends FlameGame with KeyboardEvents {
 
   @override
   void update(double dt) {
-    super.update(dt);
     final frameUpdate = onFrameUpdate;
     if (frameUpdate == null) {
       simulation.update(dt, inputSource);
     } else {
       frameUpdate(dt);
     }
+    simulation.updateRenderPoses();
     _updateCameras(dt);
+    super.update(dt);
     _snapshotElapsed += dt;
     if (_snapshotElapsed >= 0.1) {
       _snapshotElapsed %= 0.1;
@@ -311,8 +312,8 @@ class CarComponent extends Component {
       return;
     }
     canvas.save();
-    canvas.translate(state.position.x, state.position.y);
-    canvas.rotate(state.heading);
+    canvas.translate(state.renderPosition.x, state.renderPosition.y);
+    canvas.rotate(state.renderHeading);
 
     canvas.drawRect(
       const Rect.fromLTWH(-17, -9, 38, 24),

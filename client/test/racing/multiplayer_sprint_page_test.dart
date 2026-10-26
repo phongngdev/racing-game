@@ -96,9 +96,13 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(milliseconds: 20));
       expect(game.simulation.isRunning, isTrue);
+      expect(find.text('ĐANG ĐUA'), findsNWidgets(2));
+      expect(find.byType(DropdownButton<String>), findsNothing);
       await tester.tap(find.text('Tạm dừng'));
       await tester.pump();
       expect(game.simulation.isRunning, isFalse);
+      expect(find.text('TẠM DỪNG'), findsNWidgets(3));
+      expect(find.byType(DropdownButton<String>), findsNWidgets(2));
       await tester.tap(find.text('Restart từ vạch xuất phát'));
       await tester.pump();
       expect(find.text('Countdown & mulai'), findsOneWidget);

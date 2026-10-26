@@ -4,6 +4,21 @@ import 'package:racing_client/controller/controller_protocol.dart';
 import 'package:racing_client/racing/multiplayer_room_session.dart';
 
 void main() {
+  test('transport pong does not notify the room session', () {
+    final factory = _RoomConnectionFactory();
+    final session = MultiplayerRoomSession(
+      relayUrl: Uri.parse('ws://192.168.1.20:3000/controller'),
+      connectionFactory: factory.create,
+    );
+    addTearDown(session.dispose);
+    var notifications = 0;
+    session.addListener(() => notifications++);
+
+    factory.connection!.emit(ControllerEvents.pong, {'id': 1});
+
+    expect(notifications, 0);
+  });
+
   test(
     'creates protocol v3 room and becomes ready only after neutral phone input',
     () {
