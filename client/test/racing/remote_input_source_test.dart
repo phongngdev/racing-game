@@ -68,9 +68,11 @@ void main() {
       isTrue,
     );
     expect(remote.inputFor(PlayerId.red).throttle, 1);
+    expect(remote.inputFor(PlayerId.red).emergencyStop, isFalse);
     now = const Duration(milliseconds: 301).inMicroseconds;
     expect(remote.hasFreshInput, isFalse);
     expect(remote.inputFor(PlayerId.red).throttle, 0);
+    expect(remote.inputFor(PlayerId.red).emergencyStop, isTrue);
     expect(remote.readyToStart, isFalse);
   });
 
@@ -88,6 +90,7 @@ void main() {
     );
     expect(remote.readyToStart, isTrue);
     remote.lockUntilNeutral();
+    expect(remote.inputFor(PlayerId.red).emergencyStop, isTrue);
     remote.accept(
       sequence: 1,
       generation: 2,
@@ -108,6 +111,7 @@ void main() {
     );
     expect(remote.readyToStart, isTrue);
     expect(remote.inputFor(PlayerId.red).steering, 0.4);
+    expect(remote.inputFor(PlayerId.red).emergencyStop, isFalse);
   });
 
   test('routes P2 input and locks only that car until a neutral sample after timeout', () {
@@ -259,6 +263,7 @@ void main() {
     expect(selected.inputFor(PlayerId.red).throttle, 1);
     selected.select(RacingInputMode.phone);
     expect(selected.inputFor(PlayerId.red).throttle, 0);
+    expect(selected.inputFor(PlayerId.red).emergencyStop, isTrue);
     expect(selected.inputFor(PlayerId.blue).throttle, 0);
     keyboard.handleKey(LogicalKeyboardKey.arrowUp, true);
     expect(selected.inputFor(PlayerId.blue).throttle, 1);

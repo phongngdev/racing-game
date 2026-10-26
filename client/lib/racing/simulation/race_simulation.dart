@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show Rect;
+import 'dart:ui' show Offset, Rect;
 
 import 'package:flame/components.dart';
 
@@ -24,10 +24,18 @@ class RaceConfig {
   const RaceConfig({
     this.worldWidth = RaceTrackLayout.worldWidth,
     this.worldHeight = RaceTrackLayout.worldHeight,
-    // this.maxSpeed = 260,
     this.maxSpeed = 200,
     this.reverseSpeedRatio = 0.5,
     this.turnRate = 2.4,
+    // Short arcade ramps: 83 ms forward launch and 50 ms full-speed release.
+    this.forwardAcceleration = 2400,
+    this.reverseAcceleration = 1800,
+    this.coastDeceleration = 4000,
+    this.brakeDeceleration = 5000,
+    this.directionChangeDeceleration = 4000,
+    this.smoothSteering = false,
+    this.steeringAcceleration = 12,
+    this.steeringReturn = 16,
     this.vehicleRadius = 16,
     this.collisionEventThreshold = 18,
   });
@@ -37,6 +45,14 @@ class RaceConfig {
   final double maxSpeed;
   final double reverseSpeedRatio;
   final double turnRate;
+  final double forwardAcceleration;
+  final double reverseAcceleration;
+  final double coastDeceleration;
+  final double brakeDeceleration;
+  final double directionChangeDeceleration;
+  final bool smoothSteering;
+  final double steeringAcceleration;
+  final double steeringReturn;
   final double vehicleRadius;
   final double collisionEventThreshold;
 
@@ -62,6 +78,8 @@ class CarState {
 
   /// Signed speed along the car's heading. Positive is forward, negative reverse.
   double driveSpeed = 0;
+  double previousDriveSpeed = 0;
+  double steering = 0;
   final Vector2 velocity;
   double heading;
   double previousHeading;
@@ -84,6 +102,7 @@ class CarState {
   void capturePreviousPose() {
     previousPosition.setFrom(position);
     previousHeading = heading;
+    previousDriveSpeed = driveSpeed;
   }
 
   void updateRenderPose(double alpha) {
@@ -112,26 +131,24 @@ class CollisionEvent {
     required this.type,
     required List<PlayerId> players,
     required this.intensity,
+    this.position,
+    this.normal,
   }) : players = List.unmodifiable(players);
 
   final CollisionType type;
   final List<PlayerId> players;
   final double intensity;
+  final Offset? position;
+  final Offset? normal;
 }
+
+typedef SimulationStepListener = void Function(double stepSeconds);
 
 class _CircleRectContact {
   const _CircleRectContact(this.normal, this.penetration);
 
   final Vector2 normal;
   final double penetration;
-}
-
-class _DirectionTransition {
-  _DirectionTransition({required this.startSpeed, required this.targetSpeed});
-
-  final double startSpeed;
-  double targetSpeed;
-  double elapsed = 0;
 }
 
 /// Owns all car movement and collision resolution in the fixed-step game loop.
@@ -184,8 +201,8 @@ class RaceSimulation {
     sync: true,
   );
   final Set<String> _activeContacts = {};
-  final Map<PlayerId, _DirectionTransition> _directionTransitions = {};
   final Set<PlayerId> _finishedPlayers = {};
+  final List<SimulationStepListener> _stepListeners = [];
   double _accumulator = 0;
   bool isRunning = false;
   int _resetRevision = 0;
@@ -195,21 +212,32 @@ class RaceSimulation {
 
   void finishPlayer(PlayerId player) {
     _finishedPlayers.add(player);
-    (player == PlayerId.red ? red : blue).stop();
-    _directionTransitions.remove(player);
+    final car = player == PlayerId.red ? red : blue;
+    car.stop();
+    car.steering = 0;
+    car.previousDriveSpeed = 0;
   }
 
   Stream<CollisionEvent> get collisionEvents => _collisionEvents.stream;
+
+  void addStepListener(SimulationStepListener listener) {
+    if (!_stepListeners.contains(listener)) _stepListeners.add(listener);
+  }
+
+  void removeStepListener(SimulationStepListener listener) {
+    _stepListeners.remove(listener);
+  }
 
   void setRunning(bool value) {
     isRunning = value;
     if (!value) {
       _accumulator = 0;
       red.stop();
+      red.steering = 0;
       red.snapRenderPose();
       blue.stop();
+      blue.steering = 0;
       blue.snapRenderPose();
-      _directionTransitions.clear();
     }
   }
 
@@ -217,15 +245,18 @@ class RaceSimulation {
     _resetRevision++;
     red.position.setFrom(_redStart);
     red.stop();
+    red.steering = 0;
+    red.previousDriveSpeed = 0;
     red.heading = track?.redSpawn.heading ?? 0;
     red.snapRenderPose();
     blue.position.setFrom(_blueStart);
     blue.stop();
+    blue.steering = 0;
+    blue.previousDriveSpeed = 0;
     blue.heading = track?.blueSpawn.heading ?? 0;
     blue.snapRenderPose();
     _accumulator = 0;
     _activeContacts.clear();
-    _directionTransitions.clear();
     _finishedPlayers.clear();
     isRunning = false;
   }
@@ -245,6 +276,9 @@ class RaceSimulation {
       red.capturePreviousPose();
       blue.capturePreviousPose();
       _step(config.fixedStep, inputSource);
+      for (final listener in _stepListeners) {
+        listener(config.fixedStep);
+      }
       steps++;
       onFixedStep?.call(config.fixedStep);
     }
@@ -283,6 +317,12 @@ class RaceSimulation {
   }
 
   void _move(CarState car, CarInput input, double dt) {
+    if (input.emergencyStop) {
+      car.stop();
+      car.steering = 0;
+      return;
+    }
+
     final throttle = input.throttle.clamp(0.0, 1.0).toDouble();
     final reverse = input.reverse.clamp(0.0, 1.0).toDouble();
     final brake = input.brake.clamp(0.0, 1.0).toDouble();
@@ -291,53 +331,60 @@ class RaceSimulation {
         : reverse > 0
         ? -config.maxReverseSpeed * reverse
         : config.maxSpeed * throttle;
-    _updateDriveSpeed(car, targetSpeed, dt);
+    if (brake > 0) {
+      car.driveSpeed = _moveToward(
+        car.driveSpeed,
+        0,
+        config.brakeDeceleration * brake * dt,
+      );
+    } else if (car.driveSpeed != 0 &&
+        targetSpeed != 0 &&
+        car.driveSpeed.sign != targetSpeed.sign) {
+      car.driveSpeed = _moveToward(
+        car.driveSpeed,
+        0,
+        config.directionChangeDeceleration * dt,
+      );
+    } else {
+      final accelerating = targetSpeed.abs() > car.driveSpeed.abs();
+      final acceleration = accelerating
+          ? targetSpeed < 0
+                ? config.reverseAcceleration
+                : config.forwardAcceleration
+          : config.coastDeceleration;
+      car.driveSpeed = _moveToward(
+        car.driveSpeed,
+        targetSpeed,
+        acceleration * dt,
+      );
+    }
+    if (car.driveSpeed.abs() < 0.01) car.driveSpeed = 0;
 
+    final targetSteering = input.steering.clamp(-1.0, 1.0).toDouble();
+    final returningToCenter =
+        targetSteering == 0 ||
+        (car.steering * targetSteering < 0 &&
+            targetSteering.abs() < car.steering.abs());
+    car.steering = !config.smoothSteering
+        ? targetSteering
+        : _moveToward(
+            car.steering,
+            targetSteering,
+            (returningToCenter
+                    ? config.steeringReturn
+                    : config.steeringAcceleration) *
+                dt,
+          );
     if (car.driveSpeed.abs() > 0.01) {
-      car.heading +=
-          input.steering.clamp(-1.0, 1.0) *
-          config.turnRate *
-          car.driveSpeed.sign *
-          dt;
+      car.heading += car.steering * config.turnRate * car.driveSpeed.sign * dt;
     }
     car.syncVelocity();
     car.position.add(car.velocity * dt);
   }
 
-  void _updateDriveSpeed(CarState car, double targetSpeed, double dt) {
-    if (targetSpeed == 0) {
-      _directionTransitions.remove(car.player);
-      car.driveSpeed = 0;
-      return;
-    }
-
-    final isChangingDirection =
-        car.driveSpeed != 0 && car.driveSpeed.sign != targetSpeed.sign;
-    if (!isChangingDirection) {
-      _directionTransitions.remove(car.player);
-      car.driveSpeed = targetSpeed;
-      return;
-    }
-
-    final transition = _directionTransitions.putIfAbsent(
-      car.player,
-      () => _DirectionTransition(
-        startSpeed: car.driveSpeed,
-        targetSpeed: targetSpeed,
-      ),
-    );
-    transition.targetSpeed = targetSpeed;
-    transition.elapsed = math.min(
-      _directionChangeDuration,
-      transition.elapsed + dt,
-    );
-    final progress = transition.elapsed / _directionChangeDuration;
-    if (progress >= 1) {
-      car.driveSpeed = transition.targetSpeed;
-      _directionTransitions.remove(car.player);
-    } else {
-      car.driveSpeed = transition.startSpeed * (1 - progress);
-    }
+  double _moveToward(double current, double target, double maxDelta) {
+    if ((target - current).abs() <= maxDelta) return target;
+    return current + (target - current).sign * maxDelta;
   }
 
   void _resolveWallContacts(CarState car, Set<String> contacts) {
@@ -358,6 +405,11 @@ class RaceSimulation {
         [car.player],
         incomingSpeed / config.maxSpeed,
         incomingSpeed,
+        position: Offset(
+          car.position.x - contact.normal.x * radius,
+          car.position.y - contact.normal.y * radius,
+        ),
+        normal: Offset(contact.normal.x, contact.normal.y),
       );
       car.stop();
     }
@@ -423,6 +475,11 @@ class RaceSimulation {
       const [PlayerId.red, PlayerId.blue],
       impactSpeed / (config.maxSpeed * 2),
       impactSpeed,
+      position: Offset(
+        (red.position.x + blue.position.x) / 2,
+        (red.position.y + blue.position.y) / 2,
+      ),
+      normal: Offset(normal.x, normal.y),
     );
     if (redIncomingSpeed > 0) red.stop();
     if (blueIncomingSpeed > 0) blue.stop();
@@ -433,8 +490,10 @@ class RaceSimulation {
     CollisionType type,
     List<PlayerId> players,
     double intensity,
-    double impactSpeed,
-  ) {
+    double impactSpeed, {
+    Offset? position,
+    Offset? normal,
+  }) {
     if (_activeContacts.contains(key) ||
         impactSpeed < config.collisionEventThreshold) {
       return;
@@ -444,11 +503,14 @@ class RaceSimulation {
         type: type,
         players: players,
         intensity: intensity.clamp(0.0, 1.0).toDouble(),
+        position: position,
+        normal: normal,
       ),
     );
   }
 
-  void dispose() => _collisionEvents.close();
-
-  static const _directionChangeDuration = 0.15;
+  void dispose() {
+    _stepListeners.clear();
+    _collisionEvents.close();
+  }
 }

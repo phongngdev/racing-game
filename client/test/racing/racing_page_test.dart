@@ -31,6 +31,8 @@ void main() {
       expect(visible.top, closeTo(0, 0.001));
       expect(visible.right, closeTo(960, 0.001));
       expect(visible.bottom, closeTo(640, 0.001));
+      expect(find.text('km/h'), findsNWidgets(2));
+      expect(find.text('u/s'), findsNothing);
 
       await tester.tap(find.text('Bắt đầu đua'));
       await tester.pump();

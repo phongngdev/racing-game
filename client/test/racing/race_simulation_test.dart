@@ -37,48 +37,74 @@ void main() {
   });
 
   group('RaceSimulation', () {
-    test('moves directly at fixed speed, stops on release, and steers', () {
-      final simulation = RaceSimulation();
-      addTearDown(simulation.dispose);
-      final input = _TestInput();
-      simulation.setRunning(true);
-      input.values[PlayerId.red] = const CarInput(throttle: 1, steering: 1);
-      _advance(simulation, input, 0.25);
-      final heading = simulation.red.heading;
-      expect(simulation.red.speed, simulation.config.maxSpeed);
-      expect(heading, closeTo(0.6, 0.02));
-      expect(
-        simulation.red.velocity.x,
-        closeTo(math.cos(heading) * simulation.config.maxSpeed, 0.001),
-      );
-      expect(
-        simulation.red.velocity.y,
-        closeTo(math.sin(heading) * simulation.config.maxSpeed, 0.001),
-      );
+    test(
+      'arcade preset launches in 83 ms and stops on release within 50 ms',
+      () {
+        final simulation = RaceSimulation();
+        addTearDown(simulation.dispose);
+        final input = _TestInput()
+          ..values[PlayerId.red] = const CarInput(throttle: 1);
+        simulation.setRunning(true);
+        _advance(simulation, input, 10 / 120);
+        expect(simulation.red.speed, closeTo(200, 0.001));
+        final x = simulation.red.position.x;
+        input.values.clear();
+        _advance(simulation, input, 6 / 120);
+        expect(simulation.red.speed, 0);
+        expect(simulation.red.position.x - x, lessThan(6));
+      },
+    );
+    test(
+      'uses short arcade acceleration and direct steering without overshoot',
+      () {
+        final simulation = RaceSimulation();
+        addTearDown(simulation.dispose);
+        final input = _TestInput();
+        simulation.setRunning(true);
+        input.values[PlayerId.red] = const CarInput(throttle: 1, steering: 1);
+        _advance(simulation, input, 0.25);
+        final heading = simulation.red.heading;
+        expect(
+          simulation.red.speed,
+          closeTo(simulation.config.maxSpeed, 0.001),
+        );
+        expect(heading, closeTo(0.6, 0.02));
+        expect(
+          simulation.red.velocity.x,
+          closeTo(math.cos(heading) * simulation.config.maxSpeed, 0.001),
+        );
+        expect(
+          simulation.red.velocity.y,
+          closeTo(math.sin(heading) * simulation.config.maxSpeed, 0.001),
+        );
 
-      input.values[PlayerId.red] = const CarInput();
-      _advance(simulation, input, 1 / 120);
-      expect(simulation.red.speed, 0);
-      expect(simulation.red.heading, heading);
-    });
+        input.values[PlayerId.red] = const CarInput();
+        _advance(simulation, input, 1 / 120);
+        expect(simulation.red.speed, greaterThan(0));
+        _advance(simulation, input, 0.125);
+        expect(simulation.red.speed, 0);
+        expect(simulation.red.heading, heading);
+        expect(simulation.red.steering, 0);
+      },
+    );
 
-    test('direction changes pass through zero over 150 milliseconds', () {
+    test('direction changes pass through zero with a smooth ramp', () {
       final simulation = RaceSimulation();
       addTearDown(simulation.dispose);
       final input = _TestInput();
       simulation.setRunning(true);
 
       input.values[PlayerId.red] = const CarInput(throttle: 1);
-      _advance(simulation, input, 1 / 120);
-      expect(simulation.red.driveSpeed, simulation.config.maxSpeed);
-
-      input.values[PlayerId.red] = const CarInput(reverse: 1);
-      _advance(simulation, input, 0.075);
+      _advance(simulation, input, 0.25);
       expect(
         simulation.red.driveSpeed,
-        closeTo(simulation.config.maxSpeed / 2, 1),
+        closeTo(simulation.config.maxSpeed, 0.001),
       );
-      _advance(simulation, input, 0.075);
+
+      input.values[PlayerId.red] = const CarInput(reverse: 1);
+      _advance(simulation, input, 0.05);
+      expect(simulation.red.driveSpeed, 0);
+      _advance(simulation, input, 0.06);
       expect(
         simulation.red.driveSpeed,
         closeTo(-simulation.config.maxReverseSpeed, 1),
@@ -90,28 +116,25 @@ void main() {
     });
 
     test(
-      'releasing during a direction change stops and cancels the switch',
+      'releasing during a direction change coasts to zero without reversing',
       () {
         final simulation = RaceSimulation();
         addTearDown(simulation.dispose);
         final input = _TestInput();
         simulation.setRunning(true);
         input.values[PlayerId.red] = const CarInput(throttle: 1);
-        _advance(simulation, input, 1 / 120);
+        _advance(simulation, input, 0.25);
         input.values[PlayerId.red] = const CarInput(reverse: 1);
-        _advance(simulation, input, 0.075);
-        expect(
-          simulation.red.driveSpeed,
-          closeTo(simulation.config.maxSpeed / 2, 1),
-        );
+        _advance(simulation, input, 0.025);
+        expect(simulation.red.driveSpeed, closeTo(100, 1));
 
         input.values[PlayerId.red] = const CarInput();
-        _advance(simulation, input, 1 / 120);
+        _advance(simulation, input, 0.07);
         expect(simulation.red.speed, 0);
 
         input.values[PlayerId.red] = const CarInput(reverse: 1);
         _advance(simulation, input, 1 / 120);
-        expect(simulation.red.driveSpeed, -simulation.config.maxReverseSpeed);
+        expect(simulation.red.driveSpeed, closeTo(-1800 / 120, 0.01));
       },
     );
 
@@ -122,7 +145,26 @@ void main() {
       simulation.setRunning(true);
       input.values[PlayerId.red] = const CarInput(throttle: 1, reverse: 1);
       _advance(simulation, input, 1 / 120);
-      expect(simulation.red.driveSpeed, -simulation.config.maxReverseSpeed);
+      expect(simulation.red.driveSpeed, closeTo(-1800 / 120, 0.01));
+    });
+
+    test('emergency stop immediately clears speed and steering', () {
+      final simulation = RaceSimulation();
+      addTearDown(simulation.dispose);
+      simulation.red
+        ..driveSpeed = 180
+        ..steering = 0.8
+        ..syncVelocity();
+      final start = simulation.red.position.clone();
+      final input = _TestInput()
+        ..values[PlayerId.red] = const CarInput(emergencyStop: true);
+      simulation.setRunning(true);
+
+      _advance(simulation, input, simulation.config.fixedStep);
+
+      expect(simulation.red.speed, 0);
+      expect(simulation.red.steering, 0);
+      expect(simulation.red.position, start);
     });
 
     test('render pose interpolates fixed steps and snaps when paused', () {
@@ -157,6 +199,10 @@ void main() {
       simulation.blue.position.setValues(260, 180);
       simulation.red.heading = 0;
       simulation.blue.heading = math.pi;
+      simulation.red.driveSpeed = 30;
+      simulation.blue.driveSpeed = 30;
+      simulation.red.syncVelocity();
+      simulation.blue.syncVelocity();
       final input = _TestInput()..values.clear();
       input.values[PlayerId.red] = const CarInput(throttle: 1);
       input.values[PlayerId.blue] = const CarInput(throttle: 1);
@@ -193,7 +239,7 @@ void main() {
       input.values[PlayerId.blue] = const CarInput(throttle: 1);
       simulation.setRunning(true);
 
-      _advance(simulation, input, 0.25);
+      _advance(simulation, input, 0.5);
 
       expect(simulation.red.position.x, 200);
       expect(simulation.red.speed, 0);
@@ -211,7 +257,8 @@ void main() {
       simulation.red.position.setValues(120, 81);
       simulation.red.heading = -math.pi / 2;
       final input = _TestInput()..values.clear();
-      input.values[PlayerId.red] = const CarInput(throttle: 1);
+      simulation.red.driveSpeed = 100;
+      simulation.red.syncVelocity();
       simulation.setRunning(true);
 
       simulation.update(simulation.config.fixedStep, input);
@@ -227,6 +274,8 @@ void main() {
 
       simulation.red.position.setValues(120, 100);
       simulation.red.heading = -1.5707963267948966;
+      simulation.red.driveSpeed = 100;
+      simulation.red.syncVelocity();
       input.values[PlayerId.red] = const CarInput(throttle: 1);
       _advance(simulation, input, 0.3);
       expect(events, hasLength(2));
