@@ -29,12 +29,14 @@ class MultiplayerRacePage extends StatefulWidget {
     this.onBack,
     this.mode = RaceMode.lap,
     this.sprintTrack,
+    this.sprintGraphicsAssets,
   });
 
   final MultiplayerRoomSession session;
   final VoidCallback? onBack;
   final RaceMode mode;
   final TrackDefinition? sprintTrack;
+  final SprintGraphicsAssets? sprintGraphicsAssets;
 
   @override
   State<MultiplayerRacePage> createState() => _MultiplayerRacePageState();
@@ -128,10 +130,23 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       onKeyboardEvent: _handleKeyEvent,
       lapTrack: widget.mode == RaceMode.lap ? _track : null,
       sprintTrack: widget.mode == RaceMode.sprint ? _sprintTrack : null,
+      sprintGraphicsAssets: widget.sprintGraphicsAssets,
       // Sprint HUD refreshes via the existing 100 ms timer; physics still runs every frame.
       onFrameUpdate: (dt) =>
           _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
     );
+    if (_isFixedSprint) {
+      unawaited(
+        _game.loaded.then((_) {
+          if (mounted) setState(() {});
+        }),
+      );
+      unawaited(
+        _game.graphicsPreload.then((_) {
+          if (mounted) setState(() {});
+        }),
+      );
+    }
     _focusNode.addListener(_focusChanged);
     widget.session.addListener(_sessionChanged);
     _race.addListener(_raceChanged);
@@ -398,19 +413,26 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                       const SizedBox(width: 12),
                       SegmentedButton<SprintGraphicsStyle>(
                         showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(
+                        segments: [
+                          const ButtonSegment(
                             value: SprintGraphicsStyle.legacy,
                             label: Text('Legacy'),
                           ),
                           ButtonSegment(
                             value: SprintGraphicsStyle.kenney,
-                            label: Text('Kenney'),
+                            label: const Text('Kenney'),
+                            enabled:
+                                _game.isLoaded &&
+                                !_game.isGraphicsPreloading &&
+                                _game.supportsKenneyGraphics,
                           ),
                         ],
                         selected: {_game.graphicsStyle},
-                        onSelectionChanged: (selection) =>
-                            _selectSprintGraphics(selection.single),
+                        onSelectionChanged:
+                            _game.isLoaded && !_game.isGraphicsPreloading
+                            ? (selection) =>
+                                  _selectSprintGraphics(selection.single)
+                            : null,
                       ),
                     ],
                     const Spacer(),

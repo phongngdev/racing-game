@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:flame/components.dart';
 import 'package:flame/game.dart';
-import 'package:flame/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:racing_client/pages/multiplayer_setup_page.dart';
@@ -83,12 +86,17 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final fixture = RoomFixture();
+      final spriteGate = Completer<Sprite>();
+      final graphicsAssets = SprintGraphicsAssets(
+        loadSprite: (_) => spriteGate.future,
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: MultiplayerRacePage(
             session: fixture.session,
             mode: RaceMode.sprint,
             sprintTrack: FixedTracks.sprint,
+            sprintGraphicsAssets: graphicsAssets,
           ),
         ),
       );
@@ -97,12 +105,40 @@ void main() {
             find.byType(GameWidget<ApexRacingGame>),
           )
           .game!;
+      final graphicsControl = tester
+          .widget<SegmentedButton<SprintGraphicsStyle>>(
+            find.byType(SegmentedButton<SprintGraphicsStyle>),
+          );
+      expect(graphicsControl.selected, {SprintGraphicsStyle.legacy});
+      expect(graphicsControl.onSelectionChanged, isNull);
       await tester.runAsync(() async {
         await game.loaded;
         await game.ready();
       });
+      await tester.pump();
+      expect(game.isGraphicsPreloading, isTrue);
+      expect(
+        tester
+            .widget<SegmentedButton<SprintGraphicsStyle>>(
+              find.byType(SegmentedButton<SprintGraphicsStyle>),
+            )
+            .onSelectionChanged,
+        isNull,
+      );
+      spriteGate.complete(await _solidTestSprite());
+      await tester.runAsync(() => game.graphicsPreload);
       game.pauseEngine();
+      await tester.pump();
       expect(game.supportsKenneyGraphics, isTrue);
+      expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
+      expect(
+        tester
+            .widget<SegmentedButton<SprintGraphicsStyle>>(
+              find.byType(SegmentedButton<SprintGraphicsStyle>),
+            )
+            .selected,
+        {SprintGraphicsStyle.kenney},
+      );
       expect(find.text('Legacy'), findsOneWidget);
       expect(find.text('Kenney'), findsOneWidget);
 
@@ -124,12 +160,12 @@ void main() {
       );
       final blueCameraPosition = blueCamera.viewfinder.position.clone();
 
-      await tester.tap(find.text('Kenney'));
-      await tester.pump();
-      expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
       await tester.tap(find.text('Legacy'));
       await tester.pump();
       expect(game.graphicsStyle, SprintGraphicsStyle.legacy);
+      await tester.tap(find.text('Kenney'));
+      await tester.pump();
+      expect(game.graphicsStyle, SprintGraphicsStyle.kenney);
       expect(red.position, position);
       expect(red.heading, heading);
       expect(red.driveSpeed, speed);
@@ -321,4 +357,13 @@ void main() {
     expect(creates, 1);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+}
+
+Future<Sprite> _solidTestSprite() async {
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder).drawRect(
+    const ui.Rect.fromLTWH(0, 0, 4, 4),
+    ui.Paint()..color = const ui.Color(0xFFFFFFFF),
+  );
+  return Sprite(await recorder.endRecording().toImage(4, 4));
 }
