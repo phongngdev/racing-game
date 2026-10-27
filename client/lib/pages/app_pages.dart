@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../auth/session_user.dart';
 import '../racing/audio/race_audio.dart';
+import '../history/race_history_repository.dart';
+import 'race_history_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key, required this.onPlay});
@@ -192,10 +194,12 @@ class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
     required this.user,
+    this.histories,
     this.onOpenPhoneController,
   });
 
   final SessionUser user;
+  final RaceHistoryRepository? histories;
   final VoidCallback? onOpenPhoneController;
 
   @override
@@ -224,6 +228,31 @@ class SettingsPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
+        if (histories != null) ...[
+          Text(
+            'Lịch sử trận đấu',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(
+                Icons.history_rounded,
+                color: Color(0xFF3267E3),
+              ),
+              title: const Text('Lịch sử đấu'),
+              subtitle: const Text('Xem kết quả các trận multiplayer đã lưu.'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  settings: const RouteSettings(name: '/history'),
+                  builder: (_) => RaceHistoryPage(repository: histories!),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
         const RaceAudioSettingsPanel(),
         const SizedBox(height: 24),
         if (onOpenPhoneController != null) ...[

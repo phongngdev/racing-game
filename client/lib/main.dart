@@ -9,6 +9,7 @@ import 'auth/auth_pages.dart';
 import 'auth/session_user.dart';
 import 'catalog/catalog_page.dart';
 import 'catalog/catalog_repository.dart';
+import 'history/race_history_repository.dart';
 import 'chat/chat_controller.dart';
 import 'chat/chat_widgets.dart';
 import 'chat/lm_studio_service.dart';
@@ -50,6 +51,7 @@ class _MyAppState extends State<MyApp> {
   AppServices? _services;
   late final AuthController _auth;
   late final CatalogRepository _catalog;
+  late final RaceHistoryRepository? _histories;
 
   @override
   void initState() {
@@ -57,10 +59,12 @@ class _MyAppState extends State<MyApp> {
     if (widget.authController != null) {
       _auth = widget.authController!;
       _catalog = widget.catalogRepository!;
+      _histories = null;
     } else {
       _services = AppServices.createDefault();
       _auth = _services!.auth;
       _catalog = _services!.catalog;
+      _histories = _services!.histories;
     }
   }
 
@@ -136,6 +140,7 @@ class _MyAppState extends State<MyApp> {
                       builder: (_) => _AuthGate(
                         auth: _auth,
                         catalog: _catalog,
+                        histories: _histories,
                         chatServiceFactory: widget.chatServiceFactory,
                       ),
                     ),
@@ -147,6 +152,7 @@ class _MyAppState extends State<MyApp> {
           : _AuthGate(
               auth: _auth,
               catalog: _catalog,
+              histories: _histories,
               chatServiceFactory: widget.chatServiceFactory,
             ),
     );
@@ -185,11 +191,13 @@ class _AuthGate extends StatefulWidget {
   const _AuthGate({
     required this.auth,
     required this.catalog,
+    this.histories,
     this.chatServiceFactory,
   });
 
   final AuthController auth;
   final CatalogRepository catalog;
+  final RaceHistoryRepository? histories;
   final ChatServiceFactory? chatServiceFactory;
 
   @override
@@ -229,6 +237,7 @@ class _AuthGateState extends State<_AuthGate> {
       AuthStatus.signedIn => _authenticatedNavigator(
         widget.auth,
         widget.catalog,
+        widget.histories,
         widget.chatServiceFactory,
       ),
     },
@@ -237,6 +246,7 @@ class _AuthGateState extends State<_AuthGate> {
   Widget _authenticatedNavigator(
     AuthController auth,
     CatalogRepository catalog,
+    RaceHistoryRepository? histories,
     ChatServiceFactory? chatServiceFactory,
   ) {
     final user = auth.user!;
@@ -260,6 +270,7 @@ class _AuthGateState extends State<_AuthGate> {
                       MaterialPageRoute<void>(
                         builder: (_) => DemoShell(
                           auth: auth,
+                          histories: histories,
                           chatServiceFactory: chatServiceFactory,
                           onReturnToAdmin: () => Navigator.of(context).pop(),
                         ),
@@ -268,6 +279,7 @@ class _AuthGateState extends State<_AuthGate> {
                   )
                 : DemoShell(
                     auth: auth,
+                    histories: histories,
                     chatServiceFactory: chatServiceFactory,
                     onOpenCatalog: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
@@ -287,12 +299,14 @@ class DemoShell extends StatefulWidget {
   const DemoShell({
     super.key,
     required this.auth,
+    this.histories,
     this.onOpenCatalog,
     this.onReturnToAdmin,
     this.chatServiceFactory,
   });
 
   final AuthController auth;
+  final RaceHistoryRepository? histories;
   final VoidCallback? onOpenCatalog;
   final VoidCallback? onReturnToAdmin;
   final ChatServiceFactory? chatServiceFactory;
@@ -472,6 +486,7 @@ class _DemoShellState extends State<DemoShell> {
   ) async {
     if (_multiplayerGameOpen) return;
     _multiplayerGameOpen = true;
+    final historyOwnerId = widget.auth.user?.id;
     try {
       await navigator.push<void>(
         MaterialPageRoute<void>(
@@ -480,6 +495,17 @@ class _DemoShellState extends State<DemoShell> {
             session: session,
             mode: mode,
             sprintTrack: sprintTrack,
+            saveHistory: widget.histories == null
+                ? null
+                : (submission) async {
+                    if (historyOwnerId == null ||
+                        widget.auth.user?.id != historyOwnerId) {
+                      throw StateError(
+                        'The host account changed during this race.',
+                      );
+                    }
+                    return widget.histories!.save(submission);
+                  },
             onBack: () => navigator.pop(),
           ),
         ),
@@ -501,6 +527,7 @@ class _DemoShellState extends State<DemoShell> {
       ),
       SettingsPage(
         user: widget.auth.user!,
+        histories: widget.histories,
         onOpenPhoneController:
             !kIsWeb && defaultTargetPlatform == TargetPlatform.android
             ? _openPhoneController

@@ -8,6 +8,7 @@ import { CategoriesModule } from './categories/categories.module.js';
 import { ProductsModule } from './products/products.module.js';
 import { UsersModule } from './users/users.module.js';
 import { ControllerModule } from './controller/controller.module.js';
+import { RaceHistoriesModule } from './race-histories/race-histories.module.js';
 
 @Module({
   imports: [
@@ -96,6 +97,7 @@ import { ControllerModule } from './controller/controller.module.js';
     CategoriesModule,
     ProductsModule,
     ControllerModule,
+    RaceHistoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
