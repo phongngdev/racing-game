@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +21,7 @@ import 'race_mode.dart';
 import 'race_session.dart';
 import 'race_progress.dart';
 import 'race_results_presentation.dart';
+import '../history/race_history.dart';
 import 'tracks/track_definition.dart';
 import 'sprint/sprint_race_session.dart';
 import 'sprint/sprint_player_tracker.dart';
@@ -34,6 +36,7 @@ class MultiplayerRacePage extends StatefulWidget {
     this.mode = RaceMode.lap,
     this.sprintTrack,
     this.sprintGraphicsAssets,
+    this.saveHistory,
   });
 
   final MultiplayerRoomSession session;
@@ -41,6 +44,7 @@ class MultiplayerRacePage extends StatefulWidget {
   final RaceMode mode;
   final TrackDefinition? sprintTrack;
   final SprintGraphicsAssets? sprintGraphicsAssets;
+  final Future<RaceHistory> Function(RaceHistorySubmission)? saveHistory;
 
   @override
   State<MultiplayerRacePage> createState() => _MultiplayerRacePageState();
@@ -62,6 +66,12 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   Timer? _refreshTimer;
   String? _qrSlot;
   bool _hasBeenFocused = false;
+  DateTime? _raceStartedAt;
+  RacePhase _lastObservedPhase = RacePhase.ready;
+  RaceHistorySubmission? _historySubmission;
+  bool _historySaving = false;
+  bool _historySaved = false;
+  String? _historySaveError;
 
   static final _drivingKeys = <LogicalKeyboardKey>{
     LogicalKeyboardKey.keyW,
@@ -134,8 +144,7 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       sprintTrack: widget.mode == RaceMode.sprint ? _sprintTrack : null,
       sprintGraphicsAssets: widget.sprintGraphicsAssets,
       // Sprint HUD refreshes via the existing 100 ms timer; physics still runs every frame.
-      onFrameUpdate: (dt) =>
-          _race.advanceFrame(dt, publish: widget.mode != RaceMode.sprint),
+      onFrameUpdate: _advanceRaceFrame,
       effectsClockAdvances: () =>
           _race.phase == RacePhase.racing || _race.phase == RacePhase.finished,
       audioEvents: _race.audioEvents,
@@ -216,7 +225,138 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
   }
 
   void _raceChanged() {
+    _observeRaceState();
     if (mounted) setState(() {});
+  }
+
+  void _advanceRaceFrame(double elapsed) {
+    _race.advanceFrame(elapsed, publish: widget.mode != RaceMode.sprint);
+    _observeRaceState();
+  }
+
+  void _observeRaceState() {
+    final phase = _race.phase;
+    if ((_lastObservedPhase == RacePhase.finished ||
+            (_lastObservedPhase == RacePhase.paused && _race.raceTime == 0)) &&
+        phase == RacePhase.ready) {
+      _raceStartedAt = null;
+      _historySubmission = null;
+      _historySaving = false;
+      _historySaved = false;
+      _historySaveError = null;
+    }
+    _lastObservedPhase = phase;
+    _captureRaceStart();
+    if (phase == RacePhase.finished) _prepareHistorySubmission();
+  }
+
+  void _captureRaceStart() {
+    if (_raceStartedAt != null || _race.raceTime <= 0) return;
+    _raceStartedAt = DateTime.now().subtract(
+      Duration(milliseconds: (_race.raceTime * 1000).round()),
+    );
+  }
+
+  void _prepareHistorySubmission() {
+    if (_historySubmission != null ||
+        (_race.endReason != RaceEndReason.completed &&
+            _race.endReason != RaceEndReason.deadline)) {
+      return;
+    }
+    final roomId = widget.session.roomId;
+    if (roomId == null) return;
+    _captureRaceStart();
+    final startedAt = _raceStartedAt;
+    if (startedAt == null) return;
+    final endedAt = DateTime.now();
+    final players = <Map<String, Object?>>[];
+    for (final player in PlayerId.values) {
+      final slotId = player == PlayerId.red ? 'p1' : 'p2';
+      final progress = _race.progressFor(player);
+      players.add({
+        'slot': slotId,
+        'vehicle': player == PlayerId.red ? 'red' : 'blue',
+        'source': widget.session.slot(slotId)?.source == 'phone'
+            ? 'phone'
+            : 'keyboard',
+        'status': progress.status == RacePlayerStatus.finished
+            ? 'finished'
+            : 'dnf',
+        'finishTime': progress.finishTime,
+        'lapCount': progress is LapPlayerProgress ? progress.lapCount : null,
+        'completedLaps': progress is LapPlayerProgress
+            ? progress.completedLaps
+            : null,
+        'lapTimes': progress is LapPlayerProgress
+            ? progress.lapTimes
+            : const <double>[],
+        'completedCheckpoints': progress is SprintPlayerProgress
+            ? progress.completedCheckpoints
+            : null,
+        'totalCheckpoints': progress is SprintPlayerProgress
+            ? progress.totalCheckpoints
+            : null,
+      });
+    }
+    final track = widget.mode == RaceMode.sprint ? _sprintTrack : null;
+    final random = math.Random.secure();
+    _historySubmission = RaceHistorySubmission(
+      raceId: List<int>.generate(
+        16,
+        (_) => random.nextInt(256),
+      ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(),
+      roomId: roomId,
+      mode: widget.mode == RaceMode.sprint
+          ? HistoryRaceMode.sprint
+          : HistoryRaceMode.lap,
+      trackId: track?.id ?? 'apex-loop',
+      trackSeed: track?.seed,
+      generatorVersion: track?.generatorVersion,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      durationMs: (_race.raceTime * 1000).round(),
+      endReason: _race.endReason == RaceEndReason.deadline
+          ? 'deadline'
+          : 'completed',
+      isDraw: _race.isDraw,
+      winnerSlot: _race.winner == null
+          ? null
+          : _race.winner == PlayerId.red
+          ? 'p1'
+          : 'p2',
+      players: players,
+    );
+    unawaited(_saveHistory());
+  }
+
+  Future<void> _saveHistory() async {
+    final submission = _historySubmission;
+    final save = widget.saveHistory;
+    if (submission == null || _historySaving || _historySaved) return;
+    if (save == null) {
+      setState(() {
+        _historySaveError = 'Chưa kết nối được dịch vụ lưu lịch sử.';
+      });
+      return;
+    }
+    setState(() {
+      _historySaving = true;
+      _historySaveError = null;
+    });
+    try {
+      await save(submission);
+      if (!mounted || !identical(_historySubmission, submission)) return;
+      setState(() {
+        _historySaving = false;
+        _historySaved = true;
+      });
+    } catch (_) {
+      if (!mounted || !identical(_historySubmission, submission)) return;
+      setState(() {
+        _historySaving = false;
+        _historySaveError = 'Chưa lưu được trận đấu. Hãy thử lại.';
+      });
+    }
   }
 
   @override
@@ -987,6 +1127,10 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
                     _resultCard(player),
                     const SizedBox(height: 12),
                   ],
+                  if (_historySubmission != null) ...[
+                    _historyStatusPanel(),
+                    const SizedBox(height: 8),
+                  ],
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: widget.session.isConnected
@@ -1070,6 +1214,43 @@ class _MultiplayerRacePageState extends State<MultiplayerRacePage>
       ),
     );
   }
+
+  Widget _historyStatusPanel() => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFF1B2620),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        if (_historySaving)
+          const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else
+          Icon(
+            _historySaved ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+            color: _historySaved
+                ? const Color(0xFF5BD184)
+                : const Color(0xFFF2C66D),
+          ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            _historySaving
+                ? 'Đang lưu kết quả vào lịch sử đấu…'
+                : _historySaved
+                ? 'Đã lưu trận vào lịch sử đấu.'
+                : _historySaveError ?? 'Chưa lưu được trận đấu.',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+        if (!_historySaving && !_historySaved)
+          TextButton(onPressed: _saveHistory, child: const Text('Thử lại')),
+      ],
+    ),
+  );
 
   String _formatDuration(double seconds) {
     final milliseconds = (seconds * 1000).round().clamp(0, 359999999);

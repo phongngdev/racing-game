@@ -7,17 +7,20 @@ import 'auth/auth_controller.dart';
 import 'auth/auth_repository.dart';
 import 'auth/token_store.dart';
 import 'catalog/catalog_repository.dart';
+import 'history/race_history_repository.dart';
 
 class AppServices {
   AppServices({
     required this.auth,
     required this.catalog,
     required this.apiClient,
+    required this.histories,
   });
 
   final AuthController auth;
   final CatalogRepository catalog;
   final ApiClient apiClient;
+  final RaceHistoryRepository histories;
 
   factory AppServices.createDefault() {
     late final AuthController auth;
@@ -41,6 +44,7 @@ class AppServices {
       auth: auth,
       catalog: HttpCatalogRepository(apiClient),
       apiClient: apiClient,
+      histories: HttpRaceHistoryRepository(apiClient),
     );
   }
 
