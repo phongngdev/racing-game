@@ -40,6 +40,23 @@ class RaceConfig {
     this.collisionEventThreshold = 18,
   });
 
+  /// Low-speed, high-control profile for the single-driver academy lesson.
+  /// World units use the same 0.1 m conversion as the racing HUD.
+  static const academy = RaceConfig(
+    maxSpeed: 50,
+    reverseSpeedRatio: 0.4,
+    turnRate: 0.9,
+    forwardAcceleration: 100,
+    reverseAcceleration: 80,
+    coastDeceleration: 55,
+    brakeDeceleration: 150,
+    directionChangeDeceleration: 90,
+    smoothSteering: true,
+    steeringAcceleration: 3,
+    steeringReturn: 4,
+    vehicleRadius: 16,
+  );
+
   final double worldWidth;
   final double worldHeight;
   final double maxSpeed;
@@ -156,6 +173,7 @@ class RaceSimulation {
   RaceSimulation({
     this.config = const RaceConfig(),
     this.track,
+    this.wallRects,
     Vector2? redStartPosition,
     Vector2? blueStartPosition,
   }) : _redStart =
@@ -193,6 +211,9 @@ class RaceSimulation {
 
   final RaceConfig config;
   final TrackDefinition? track;
+
+  /// Null keeps the historic mode-specific walls; an empty list disables them.
+  final List<(String, Rect)>? wallRects;
   final Vector2 _redStart;
   final Vector2 _blueStart;
   final CarState red;
@@ -389,7 +410,7 @@ class RaceSimulation {
 
   void _resolveWallContacts(CarState car, Set<String> contacts) {
     final radius = config.vehicleRadius;
-    for (final wall in track?.walls ?? RaceTrackLayout.walls) {
+    for (final wall in wallRects ?? track?.walls ?? RaceTrackLayout.walls) {
       final contact = _circleRectContact(car.position, radius, wall.$2);
       if (contact == null) continue;
       final key = 'wall:${car.player.name}:${wall.$1}';

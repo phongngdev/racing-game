@@ -12,10 +12,16 @@ class PracticeSetupPage extends StatefulWidget {
     super.key,
     required this.onBack,
     required this.onStart,
+    this.pageTitle = 'Chuẩn bị Practice',
+    this.startLabel = 'Bắt đầu Practice',
+    this.lessonInstructions,
   });
 
   final VoidCallback onBack;
   final Future<void> Function(PracticeControllerSession? session) onStart;
+  final String pageTitle;
+  final String startLabel;
+  final String? lessonInstructions;
 
   @override
   State<PracticeSetupPage> createState() => _PracticeSetupPageState();
@@ -108,7 +114,7 @@ class _PracticeSetupPageState extends State<PracticeSetupPage> {
         onPressed: widget.onBack,
         icon: const Icon(Icons.arrow_back_rounded),
       ),
-      title: const Text('Chuẩn bị Practice'),
+      title: Text(widget.pageTitle),
     ),
     body: LayoutBuilder(
       builder: (context, constraints) {
@@ -122,12 +128,14 @@ class _PracticeSetupPageState extends State<PracticeSetupPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'Sẵn sàng ra đường đua',
+                    widget.lessonInstructions == null
+                        ? 'Sẵn sàng ra đường đua'
+                        : 'Đường vòng quanh co · Bài luyện 1',
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Chọn cách điều khiển. Cuộc đua chỉ bắt đầu sau khi bạn nhấn nút trong game.',
+                    widget.lessonInstructions ?? 'Chọn cách điều khiển. Cuộc đua chỉ bắt đầu sau khi bạn nhấn nút trong game.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 22),
@@ -202,7 +210,7 @@ class _PracticeSetupPageState extends State<PracticeSetupPage> {
                         : _startPractice,
                     icon: const Icon(Icons.sports_esports_rounded),
                     label: Text(
-                      _starting ? 'Đang mở game…' : 'Bắt đầu Practice',
+                      _starting ? 'Đang mở game…' : widget.startLabel,
                     ),
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF3267E3),
