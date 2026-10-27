@@ -16,6 +16,7 @@ import 'pages/app_pages.dart';
 import 'pages/android_entry_page.dart';
 import 'pages/practice_setup_page.dart';
 import 'pages/multiplayer_setup_page.dart';
+import 'pages/academy_page.dart';
 import 'controller/phone_controller_flow_page.dart';
 import 'controller/qr_scanner_page.dart';
 import 'controller/room_pairing_payload.dart';
@@ -25,6 +26,7 @@ import 'racing/multiplayer_race_page.dart';
 import 'racing/race_mode.dart';
 import 'racing/racing_page.dart';
 import 'racing/tracks/track_definition.dart';
+import 'racing/academy/academy_game_page.dart';
 
 void main() => runApp(const MyApp());
 
@@ -305,6 +307,8 @@ class _DemoShellState extends State<DemoShell> {
   bool _practiceGameOpen = false;
   bool _multiplayerSetupOpen = false;
   bool _multiplayerGameOpen = false;
+  bool _academyOpen = false;
+  bool _academyGameOpen = false;
   late final ChatController _chatController;
 
   @override
@@ -359,6 +363,62 @@ class _DemoShellState extends State<DemoShell> {
       );
     } finally {
       _practiceSetupOpen = false;
+    }
+  }
+
+  Future<void> _openAcademy() async {
+    if (_academyOpen) return;
+    _academyOpen = true;
+    final navigator = Navigator.of(context);
+    try {
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/academy'),
+          builder: (routeContext) => AcademyPage(
+            onBack: () => Navigator.of(routeContext).pop(),
+            onLesson: () => unawaited(_openAcademyLesson(navigator)),
+          ),
+        ),
+      );
+    } finally {
+      _academyOpen = false;
+    }
+  }
+
+  Future<void> _openAcademyLesson(NavigatorState navigator) async {
+    await navigator.push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/academy/lesson'),
+        builder: (_) => PracticeSetupPage(
+          pageTitle: 'Driving Academy',
+          startLabel: 'Bắt đầu bài luyện',
+          lessonInstructions: 'Đi qua hai khúc cua, giữ bánh xe trong vạch và vượt đích đúng chiều. Bài tham khảo Phụ lục IV Thông tư 12/2025: 100 điểm, 120 giây, giới hạn hạng B 24 km/h. Đè vạch áp dụng mức trừ −5 mỗi lần và thêm −5 khi giữ quá mỗi 5 giây. Nhịp trừ khi quá giờ và ngưỡng đạt 80 là quy ước game. Không mô phỏng RPM, hộp số hoặc chết máy; kết quả không phải sát hạch chính thức. Có thể dùng bàn phím hoặc phone controller.',
+          onBack: navigator.pop,
+          onStart: (session) => _openAcademyGame(navigator, session),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAcademyGame(
+    NavigatorState navigator,
+    PracticeControllerSession? session,
+  ) async {
+    if (_academyGameOpen) return;
+    _academyGameOpen = true;
+    try {
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/academy/game'),
+          builder: (_) => AcademyGamePage(
+            practiceSession: session,
+            onReturnToAcademy: () =>
+                navigator.popUntil(ModalRoute.withName('/academy')),
+          ),
+        ),
+      );
+    } finally {
+      _academyGameOpen = false;
     }
   }
 
@@ -437,6 +497,7 @@ class _DemoShellState extends State<DemoShell> {
       PlayPage(
         onPractice: () => unawaited(_openPractice()),
         onMultiplayer: () => unawaited(_openMultiplayer()),
+        onAcademy: () => unawaited(_openAcademy()),
       ),
       SettingsPage(
         user: widget.auth.user!,

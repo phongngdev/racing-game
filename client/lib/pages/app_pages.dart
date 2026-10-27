@@ -51,10 +51,12 @@ class PlayPage extends StatelessWidget {
     super.key,
     required this.onPractice,
     required this.onMultiplayer,
+    required this.onAcademy,
   });
 
   final VoidCallback onPractice;
   final VoidCallback onMultiplayer;
+  final VoidCallback onAcademy;
 
   @override
   Widget build(BuildContext context) => _AppPage(
@@ -77,6 +79,14 @@ class PlayPage extends StatelessWidget {
           description: 'Luyện tập lái xe và làm quen đường đua.',
           actionLabel: 'Chuẩn bị',
           onTap: onPractice,
+        ),
+        const SizedBox(height: 14),
+        _ModeCard(
+          icon: Icons.school_rounded,
+          title: 'Sát hạch lái xe',
+          description: 'Luyện các bài sa hình với chấm điểm và hướng dẫn.',
+          actionLabel: 'Vào học',
+          onTap: onAcademy,
         ),
         const SizedBox(height: 14),
         _ModeCard(
